@@ -204,7 +204,7 @@ func runServices() int {
 	return getExitCode()
 }
 
-func redirectToStderrWithPrefix(name string, reader io.Reader) {
+func redirectToStderrWithPrefix(stage, name string, reader io.Reader) {
 	scanner := bufio.NewScanner(reader)
 
 	res := true
@@ -212,18 +212,18 @@ func redirectToStderrWithPrefix(name string, reader io.Reader) {
 		res = scanner.Scan()
 		line := scanner.Text()
 		if len(line) > 0 {
-			log.Printf("%s: %s\n", name, line)
+			log.Printf("%s/%s: %s\n", name, stage, line)
 		}
 	}
 
 	err := scanner.Err()
 	// Reader can get closed and we ignore that.
 	if err != nil && !errors.Is(err, os.ErrClosed) {
-		Warnf("error reading stderr from %s: %s", name, err)
+		Warnf("error reading stderr from %s/%s: %s", name, stage, err)
 	}
 }
 
-func redirectJSONToStdout(name string, jsonName []byte, reader io.Reader) {
+func redirectJSONToStdout(stage, name string, jsonName []byte, reader io.Reader) {
 	scanner := bufio.NewScanner(reader)
 	timeBuffer := make([]byte, 30)
 
@@ -240,16 +240,18 @@ func redirectJSONToStdout(name string, jsonName []byte, reader io.Reader) {
 				buffer.Write(line[:len(line)-1])
 				buffer.WriteString(`,"service":`)
 				buffer.Write(jsonName)
-				buffer.WriteString(`,"logged":"`)
+				buffer.WriteString(`,"stage":"`)
+				buffer.WriteString(stage)
+				buffer.WriteString(`","logged":"`)
 				buffer.Write(now.AppendFormat(timeBuffer, "2006-01-02T15:04:05.000Z07:00"))
 				buffer.WriteString(`"}`)
 				buffer.WriteString("\n")
 				_, err := os.Stdout.Write(buffer.Bytes())
 				if err != nil {
-					Warnf("error writing stdout for %s: %s", name, err)
+					Warnf("error writing stdout for %s/%s: %s", name, stage, err)
 				}
 			} else {
-				Warnf("not JSON stdout from %s: %s\n", name, line)
+				Warnf("not JSON stdout from %s/%s: %s\n", name, stage, line)
 			}
 		}
 	}
@@ -259,6 +261,61 @@ func redirectJSONToStdout(name string, jsonName []byte, reader io.Reader) {
 	if err != nil && !errors.Is(err, os.ErrClosed) {
 		Warnf("error reading stdout from %s: %s", name, err)
 	}
+}
+
+func cmdWait(cmd *exec.Cmd, stage, name string, jsonName []byte, stdout, stderr io.ReadCloser) {
+	go redirectToStderrWithPrefix(stage, name, stderr)
+	go redirectJSONToStdout(stage, name, jsonName, stdout)
+
+	err := cmd.Wait()
+	if err != nil {
+		if errors.Is(err, syscall.ECHILD) {
+			status, ok := getReapedChildExitStatus(cmd.Process.Pid)
+			if !ok {
+				maybeSetExitCode(1)
+				Errorf("could not determine exit status of %s/%s", name, stage)
+			} else if status != 0 {
+				maybeSetExitCode(2)
+			}
+		} else if errors.Is(err, context.Canceled) {
+			// Nothing.
+		} else if cmd.ProcessState != nil && !cmd.ProcessState.Success() {
+			maybeSetExitCode(2)
+		} else {
+			maybeSetExitCode(1)
+			Errorf("error waiting for %s/%s: %s", name, stage, err)
+		}
+	}
+}
+
+func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error {
+	r := path.Join(p, "stop")
+	cmd := exec.Command(r)
+	cmd.Dir = p
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		maybeSetExitCode(1)
+		return err
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		maybeSetExitCode(1)
+		return err
+	}
+	err = cmd.Start()
+	if err != nil {
+		// If stop program does not exist, we send SIGTERM instead.
+		if errors.Is(err, os.ErrNotExist) {
+			_ = runCmd.Process.Signal(syscall.SIGTERM)
+			return nil
+		}
+		maybeSetExitCode(1)
+		return err
+	}
+
+	cmdWait(cmd, "stop", name, jsonName, stdout, stderr)
+
+	return nil
 }
 
 func runService(ctx context.Context, name, p string) error {
@@ -271,8 +328,7 @@ func runService(ctx context.Context, name, p string) error {
 	cmd := exec.CommandContext(ctx, r)
 	cmd.Dir = p
 	cmd.Cancel = func() error {
-		// TODO: Call "stop".
-		return nil
+		return stopService(cmd, name, jsonName, p)
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -290,28 +346,7 @@ func runService(ctx context.Context, name, p string) error {
 		return err
 	}
 
-	go redirectToStderrWithPrefix(name, stderr)
-	go redirectJSONToStdout(name, jsonName, stdout)
-
-	err = cmd.Wait()
-	if err != nil {
-		if errors.Is(err, syscall.ECHILD) {
-			status, ok := getReapedChildExitStatus(cmd.Process.Pid)
-			if !ok {
-				maybeSetExitCode(1)
-				Errorf("could not determine exit status of %s", name)
-			} else if status != 0 {
-				maybeSetExitCode(2)
-			}
-		} else if errors.Is(err, context.Canceled) {
-			// Nothing.
-		} else if cmd.ProcessState != nil && !cmd.ProcessState.Success() {
-			maybeSetExitCode(2)
-		} else {
-			maybeSetExitCode(1)
-			Errorf("error waiting for %s: %s", name, err)
-		}
-	}
+	cmdWait(cmd, "run", name, jsonName, stdout, stderr)
 
 	// The service stopped. We stop all other services as well.
 	stopChildren()
