@@ -23,19 +23,19 @@ import (
 
 const etcService = "/etc/service"
 
-func Warn(msg any) {
+func logWarn(msg any) {
 	log.Printf("dinit: warning: %s", msg)
 }
 
-func Warnf(msg string, args ...any) {
+func logWarnf(msg string, args ...any) {
 	log.Printf("dinit: warning: "+msg, args...)
 }
 
-func Error(msg any) {
+func logError(msg any) {
 	log.Printf("dinit: error: %s", msg)
 }
 
-func Errorf(msg string, args ...any) {
+func logErrorf(msg string, args ...any) {
 	log.Printf("dinit: error: "+msg, args...)
 }
 
@@ -91,7 +91,7 @@ func main() {
 		// We are not running as PID 1 so we register ourselves as a process subreaper.
 		_, _, err := syscall.RawSyscall(syscall.SYS_PRCTL, unix.PR_SET_CHILD_SUBREAPER, 1, 0)
 		if err != 0 {
-			Error(err)
+			logError(err)
 			os.Exit(1)
 		}
 	}
@@ -153,7 +153,7 @@ func stopChildren() {
 func runServices() int {
 	entries, err := os.ReadDir(etcService)
 	if err != nil {
-		Error(err)
+		logError(err)
 		return 1
 	}
 	found := false
@@ -169,7 +169,7 @@ func runServices() int {
 		info, err := os.Stat(p)
 		if err != nil {
 			maybeSetExitCode(1)
-			Error(err)
+			logError(err)
 			stopChildren()
 			errored = true
 			break
@@ -185,7 +185,7 @@ func runServices() int {
 	}
 	if !found {
 		if !errored {
-			Warn("no services found")
+			logWarn("no services found")
 		}
 	} else {
 		err := g.Wait()
@@ -194,7 +194,7 @@ func runServices() int {
 				// Nothing.
 			} else {
 				maybeSetExitCode(1)
-				Error(err)
+				logError(err)
 			}
 		}
 	}
@@ -217,7 +217,7 @@ func redirectToStderrWithPrefix(stage, name string, reader io.Reader) {
 	err := scanner.Err()
 	// Reader can get closed and we ignore that.
 	if err != nil && !errors.Is(err, os.ErrClosed) {
-		Warnf("error reading stderr from %s/%s: %s", name, stage, err)
+		logWarnf("error reading stderr from %s/%s: %s", name, stage, err)
 	}
 }
 
@@ -246,10 +246,10 @@ func redirectJSONToStdout(stage, name string, jsonName []byte, reader io.Reader)
 				buffer.WriteString("\n")
 				_, err := os.Stdout.Write(buffer.Bytes())
 				if err != nil {
-					Warnf("error writing stdout for %s/%s: %s", name, stage, err)
+					logWarnf("error writing stdout for %s/%s: %s", name, stage, err)
 				}
 			} else {
-				Warnf("not JSON stdout from %s/%s: %s\n", name, stage, line)
+				logWarnf("not JSON stdout from %s/%s: %s\n", name, stage, line)
 			}
 		}
 	}
@@ -257,7 +257,7 @@ func redirectJSONToStdout(stage, name string, jsonName []byte, reader io.Reader)
 	err := scanner.Err()
 	// Reader can get closed and we ignore that.
 	if err != nil && !errors.Is(err, os.ErrClosed) {
-		Warnf("error reading stdout from %s: %s", name, err)
+		logWarnf("error reading stdout from %s: %s", name, err)
 	}
 }
 
@@ -271,7 +271,7 @@ func cmdWait(cmd *exec.Cmd, stage, name string, jsonName []byte, stdout, stderr 
 			status, ok := getReapedChildExitStatus(cmd.Process.Pid)
 			if !ok {
 				maybeSetExitCode(1)
-				Errorf("could not determine exit status of %s/%s", name, stage)
+				logErrorf("could not determine exit status of %s/%s", name, stage)
 			} else if status != 0 {
 				maybeSetExitCode(2)
 			}
@@ -281,7 +281,7 @@ func cmdWait(cmd *exec.Cmd, stage, name string, jsonName []byte, stdout, stderr 
 			maybeSetExitCode(2)
 		} else {
 			maybeSetExitCode(1)
-			Errorf("error waiting for %s/%s: %s", name, stage, err)
+			logErrorf("error waiting for %s/%s: %s", name, stage, err)
 		}
 	}
 }
