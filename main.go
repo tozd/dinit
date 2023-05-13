@@ -18,12 +18,10 @@ import (
 	"time"
 
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/sys/unix"
 )
 
 const etcService = "/etc/service"
-
-// From golang.org/x/sys/unix.
-const PR_SET_CHILD_SUBREAPER = 0x24
 
 func Warn(msg any) {
 	log.Printf("dinit: warning: %s", msg)
@@ -91,7 +89,7 @@ func main() {
 
 	if pid := os.Getpid(); pid != 1 {
 		// We are not running as PID 1 so we register ourselves as a process subreaper.
-		_, _, err := syscall.RawSyscall(syscall.SYS_PRCTL, PR_SET_CHILD_SUBREAPER, 1, 0)
+		_, _, err := syscall.RawSyscall(syscall.SYS_PRCTL, unix.PR_SET_CHILD_SUBREAPER, 1, 0)
 		if err != 0 {
 			Error(err)
 			os.Exit(1)
