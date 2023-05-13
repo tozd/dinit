@@ -192,8 +192,12 @@ func runServices() int {
 	} else {
 		err := g.Wait()
 		if err != nil {
-			maybeSetExitCode(1)
-			Error(err)
+			if errors.Is(err, context.Canceled) {
+				// Nothing.
+			} else {
+				maybeSetExitCode(1)
+				Error(err)
+			}
 		}
 	}
 
@@ -264,9 +268,11 @@ func runService(ctx context.Context, name, p string) error {
 		return err
 	}
 	r := path.Join(p, "run")
-	cmd := exec.Cmd{
-		Path: r,
-		Dir:  p,
+	cmd := exec.CommandContext(ctx, r)
+	cmd.Dir = p
+	cmd.Cancel = func() error {
+		// TODO: Call "stop".
+		return nil
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -297,6 +303,8 @@ func runService(ctx context.Context, name, p string) error {
 			} else if status != 0 {
 				maybeSetExitCode(2)
 			}
+		} else if errors.Is(err, context.Canceled) {
+			// Nothing.
 		} else if cmd.ProcessState != nil && !cmd.ProcessState.Success() {
 			maybeSetExitCode(2)
 		} else {
