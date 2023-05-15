@@ -23,6 +23,9 @@ import (
 
 const etcService = "/etc/service"
 
+// TODO: Output milliseconds.
+const logFlags = log.Ldate | log.Ltime | log.LUTC
+
 func logWarn(msg any) {
 	log.Printf("dinit: warning: %s", msg)
 }
@@ -83,9 +86,10 @@ func getExitCode() int {
 	return 0
 }
 
+var stdOutLog = log.New(os.Stdout, "", logFlags)
+
 func main() {
-	// TODO: Output milliseconds.
-	log.SetFlags(log.Ldate | log.Ltime | log.LUTC)
+	log.SetFlags(logFlags)
 
 	if pid := os.Getpid(); pid != 1 {
 		// We are not running as PID 1 so we register ourselves as a process subreaper.
@@ -202,7 +206,7 @@ func runServices() int {
 	return getExitCode()
 }
 
-func redirectToStderrWithPrefix(stage, name string, reader io.Reader) {
+func redirectToLogWithPrefix(l *log.Logger, stage, name string, reader io.Reader) {
 	scanner := bufio.NewScanner(reader)
 
 	res := true
@@ -210,7 +214,7 @@ func redirectToStderrWithPrefix(stage, name string, reader io.Reader) {
 		res = scanner.Scan()
 		line := scanner.Text()
 		if len(line) > 0 {
-			log.Printf("%s/%s: %s\n", name, stage, line)
+			l.Printf("%s/%s: %s\n", name, stage, line)
 		}
 	}
 
@@ -219,6 +223,14 @@ func redirectToStderrWithPrefix(stage, name string, reader io.Reader) {
 	if err != nil && !errors.Is(err, os.ErrClosed) {
 		logWarnf("error reading stderr from %s/%s: %s", name, stage, err)
 	}
+}
+
+func redirectToStderrWithPrefix(stage, name string, reader io.Reader) {
+	redirectToLogWithPrefix(log.Default(), stage, name, reader)
+}
+
+func redirectToStdoutWithPrefix(stage, name string, reader io.Reader) {
+	redirectToLogWithPrefix(stdOutLog, stage, name, reader)
 }
 
 func redirectJSONToStdout(stage, name string, jsonName []byte, reader io.Reader) {
@@ -263,7 +275,12 @@ func redirectJSONToStdout(stage, name string, jsonName []byte, reader io.Reader)
 
 func cmdWait(cmd *exec.Cmd, stage, name string, jsonName []byte, stdout, stderr io.ReadCloser) {
 	go redirectToStderrWithPrefix(stage, name, stderr)
-	go redirectJSONToStdout(stage, name, jsonName, stdout)
+
+	if os.Getenv("DINIT_JSON_STDOUT") == "0" {
+		go redirectToStdoutWithPrefix(stage, name, stdout)
+	} else {
+		go redirectJSONToStdout(stage, name, jsonName, stdout)
+	}
 
 	err := cmd.Wait()
 	if err != nil {
