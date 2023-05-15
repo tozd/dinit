@@ -1,4 +1,4 @@
-module gitlab.com/tozd/go/dinit
+module gitlab.com/tozd/dinit
 
 go 1.20
 
