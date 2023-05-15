@@ -26,6 +26,20 @@ const etcService = "/etc/service"
 // TODO: Output milliseconds.
 const logFlags = log.Ldate | log.Ltime | log.LUTC
 
+var printInfo = os.Getenv("DINIT_LOG_INFO") == "1"
+
+func logInfo(msg any) {
+	if printInfo {
+		log.Printf("dinit: info: %s", msg)
+	}
+}
+
+func logInfof(msg string, args ...any) {
+	if printInfo {
+		log.Printf("dinit: info: "+msg, args...)
+	}
+}
+
 func logWarn(msg any) {
 	log.Printf("dinit: warning: %s", msg)
 }
@@ -92,6 +106,7 @@ func main() {
 	log.SetFlags(logFlags)
 
 	if pid := os.Getpid(); pid != 1 {
+		logInfof("not running as a PID 1, but PID %d, registering as a process subreaper", pid)
 		// We are not running as PID 1 so we register ourselves as a process subreaper.
 		_, _, err := syscall.RawSyscall(syscall.SYS_PRCTL, unix.PR_SET_CHILD_SUBREAPER, 1, 0)
 		if err != 0 {
@@ -104,7 +119,9 @@ func main() {
 
 	go handleStopSignals()
 
-	os.Exit(runServices())
+	code := runServices()
+	logInfof("dinit stopping with exit status %d", code)
+	os.Exit(code)
 }
 
 func handleSigChild() {
@@ -136,6 +153,7 @@ func reapChildren() {
 			// There was some other error or call would block.
 			return
 		}
+		logInfof("reaped process with PID %d and exit status %d", pid, status.ExitStatus())
 		setReapedChildExitStatus(pid, status.ExitStatus())
 	}
 }
@@ -144,6 +162,7 @@ func handleStopSignals() {
 	c := make(chan os.Signal, 3)
 	signal.Notify(c, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
 	for range c {
+		logInfo("got SIGTERM/SIGINT/SIGQUIT signal, stopping children")
 		// Even if children complain being terminated, we still exit with 0.
 		maybeSetExitCode(0)
 		stopChildren()
@@ -289,21 +308,28 @@ func cmdWait(cmd *exec.Cmd, stage, name string, jsonName []byte, stdout, stderr 
 			if !ok {
 				maybeSetExitCode(1)
 				logErrorf("could not determine exit status of %s/%s", name, stage)
-			} else if status != 0 {
-				maybeSetExitCode(2)
+			} else {
+				if status != 0 {
+					maybeSetExitCode(2)
+				}
+				logInfof("%s/%s with PID %d finished with exit status %d", name, stage, cmd.Process.Pid, status)
 			}
 		} else if errors.Is(err, context.Canceled) {
 			// Nothing.
 		} else if cmd.ProcessState != nil && !cmd.ProcessState.Success() {
 			maybeSetExitCode(2)
+			logInfof("%s/%s with PID %d finished with exit status %d: %s", name, stage, cmd.Process.Pid, cmd.ProcessState.ExitCode())
 		} else {
 			maybeSetExitCode(1)
 			logErrorf("error waiting for %s/%s: %s", name, stage, err)
 		}
+	} else {
+		logInfof("%s/%s with PID %d finished with exit status %d", name, stage, cmd.Process.Pid, cmd.ProcessState.ExitCode())
 	}
 }
 
 func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error {
+	logInfof("stopping %s", name)
 	r := path.Join(p, "stop")
 	cmd := exec.Command(r)
 	cmd.Dir = p
@@ -321,12 +347,14 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 	if err != nil {
 		// If stop program does not exist, we send SIGTERM instead.
 		if errors.Is(err, os.ErrNotExist) {
+			logInfof("sending SIGTERM to PID %d for %s", runCmd.Process.Pid, name)
 			_ = runCmd.Process.Signal(syscall.SIGTERM)
 			return nil
 		}
 		maybeSetExitCode(1)
 		return err
 	}
+	logInfof("%s/stop is running with PID %d", name, cmd.Process.Pid)
 
 	cmdWait(cmd, "stop", name, jsonName, stdout, stderr)
 
@@ -334,6 +362,7 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 }
 
 func runService(ctx context.Context, name, p string) error {
+	logInfof("starting %s", name)
 	jsonName, err := json.Marshal(name)
 	if err != nil {
 		maybeSetExitCode(1)
@@ -360,6 +389,7 @@ func runService(ctx context.Context, name, p string) error {
 		maybeSetExitCode(1)
 		return err
 	}
+	logInfof("%s/run is running with PID %d", name, cmd.Process.Pid)
 
 	cmdWait(cmd, "run", name, jsonName, stdout, stderr)
 
