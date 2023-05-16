@@ -133,9 +133,9 @@ func main() {
 
 	go handleStopSignals()
 
-	code := runServices()
-	logInfof("dinit stopping with exit status %d", code)
-	os.Exit(code)
+	status := runServices()
+	logInfof("dinit finishing with status %d", status)
+	os.Exit(status)
 }
 
 func handleSigChild() {
@@ -167,7 +167,7 @@ func reapChildren() {
 			// There was some other error or call would block.
 			return
 		}
-		logInfof("reaped process with PID %d and exit status %d", pid, status.ExitStatus())
+		logInfof("reaped process with PID %d and status %d", pid, status.ExitStatus())
 		setReapedChildExitStatus(pid, status.ExitStatus())
 	}
 }
@@ -326,19 +326,19 @@ func cmdWait(cmd *exec.Cmd, stage, name string, jsonName []byte, stdout, stderr 
 				if status != 0 {
 					maybeSetExitCode(2)
 				}
-				logInfof("%s/%s with PID %d finished with exit status %d", name, stage, cmd.Process.Pid, status)
+				logInfof("%s/%s with PID %d finished with status %d", name, stage, cmd.Process.Pid, status)
 			}
 		} else if errors.Is(err, context.Canceled) {
 			// Nothing.
 		} else if cmd.ProcessState != nil && !cmd.ProcessState.Success() {
 			maybeSetExitCode(2)
-			logInfof("%s/%s with PID %d finished with exit status %d: %s", name, stage, cmd.Process.Pid, cmd.ProcessState.ExitCode())
+			logInfof("%s/%s with PID %d finished with status %d: %s", name, stage, cmd.Process.Pid, cmd.ProcessState.ExitCode())
 		} else {
 			maybeSetExitCode(1)
 			logErrorf("error waiting for %s/%s: %s", name, stage, err)
 		}
 	} else {
-		logInfof("%s/%s with PID %d finished with exit status %d", name, stage, cmd.Process.Pid, cmd.ProcessState.ExitCode())
+		logInfof("%s/%s with PID %d finished with status %d", name, stage, cmd.Process.Pid, cmd.ProcessState.ExitCode())
 	}
 }
 
