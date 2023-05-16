@@ -26,33 +26,27 @@ const etcService = "/etc/service"
 // TODO: Output milliseconds.
 const logFlags = log.Ldate | log.Ltime | log.LUTC
 
-var printInfo = os.Getenv("DINIT_LOG_INFO") == "1"
-
-func logInfo(msg any) {
-	if printInfo {
-		log.Printf("dinit: info: %s", msg)
-	}
+var logInfo = func(msg any) {
+	log.Printf("dinit: info: %s", msg)
 }
 
-func logInfof(msg string, args ...any) {
-	if printInfo {
-		log.Printf("dinit: info: "+msg, args...)
-	}
+var logInfof = func(msg string, args ...any) {
+	log.Printf("dinit: info: "+msg, args...)
 }
 
-func logWarn(msg any) {
+var logWarn = func(msg any) {
 	log.Printf("dinit: warning: %s", msg)
 }
 
-func logWarnf(msg string, args ...any) {
+var logWarnf = func(msg string, args ...any) {
 	log.Printf("dinit: warning: "+msg, args...)
 }
 
-func logError(msg any) {
+var logError = func(msg any) {
 	log.Printf("dinit: error: %s", msg)
 }
 
-func logErrorf(msg string, args ...any) {
+var logErrorf = func(msg string, args ...any) {
 	log.Printf("dinit: error: "+msg, args...)
 }
 
@@ -104,6 +98,26 @@ var stdOutLog = log.New(os.Stdout, "", logFlags)
 
 func main() {
 	log.SetFlags(logFlags)
+
+	switch level := os.Getenv("DINIT_LOG_LEVEL"); level {
+	case "none":
+		logError = func(msg any) {}
+		logErrorf = func(msg string, args ...any) {}
+		fallthrough
+	case "error":
+		logWarn = func(msg any) {}
+		logWarnf = func(msg string, args ...any) {}
+		fallthrough
+	case "warn", "": // Default log level.
+		logInfo = func(msg any) {}
+		logInfof = func(msg string, args ...any) {}
+		fallthrough
+	case "info":
+		// Nothing.
+	default:
+		logErrorf("invalid log level %s", level)
+		os.Exit(1)
+	}
 
 	if pid := os.Getpid(); pid != 1 {
 		logInfof("not running as a PID 1, but PID %d, registering as a process subreaper", pid)
