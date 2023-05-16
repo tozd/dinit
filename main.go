@@ -58,16 +58,16 @@ func init() {
 }
 
 // TODO: Expire old entries.
-var reapedChildren = map[int]int{}
+var reapedChildren = map[int]syscall.WaitStatus{}
 var reapedChildrenMu sync.Mutex
 
-func setReapedChildExitStatus(pid, status int) {
+func setReapedChildWaitStatus(pid int, status syscall.WaitStatus) {
 	reapedChildrenMu.Lock()
 	defer reapedChildrenMu.Unlock()
 	reapedChildren[pid] = status
 }
 
-func getReapedChildExitStatus(pid int) (int, bool) {
+func getReapedChildWaitStatus(pid int) (syscall.WaitStatus, bool) {
 	reapedChildrenMu.Lock()
 	defer reapedChildrenMu.Unlock()
 	status, ok := reapedChildren[pid]
@@ -140,7 +140,7 @@ func main() {
 
 func handleSigChild() {
 	// We cannot just set SIGCHLD to SIG_IGN for kernel to reap zombies (and all children) for us,
-	// because we have to store exit statuses for our own children.
+	// because we have to store wait statuses for our own children.
 	c := make(chan os.Signal)
 	signal.Notify(c, syscall.SIGCHLD)
 	for range c {
@@ -167,8 +167,12 @@ func reapChildren() {
 			// There was some other error or call would block.
 			return
 		}
-		logInfof("reaped process with PID %d and status %d", pid, status.ExitStatus())
-		setReapedChildExitStatus(pid, status.ExitStatus())
+		if status.Exited() {
+			logInfof("reaped process with PID %d and status %d", pid, status.ExitStatus())
+		} else {
+			logInfof("reaped process with PID %d and signal %d", pid, status.Signal())
+		}
+		setReapedChildWaitStatus(pid, status)
 	}
 }
 
@@ -306,7 +310,7 @@ func redirectJSONToStdout(stage, name string, jsonName []byte, reader io.Reader)
 	}
 }
 
-func cmdWait(cmd *exec.Cmd, stage, name string, jsonName []byte, stdout, stderr io.ReadCloser) {
+func cmdWait(ctx context.Context, cmd *exec.Cmd, stage, name string, jsonName []byte, stdout, stderr io.ReadCloser) {
 	go redirectToStderrWithPrefix(stage, name, stderr)
 
 	if os.Getenv("DINIT_JSON_STDOUT") == "0" {
@@ -315,31 +319,43 @@ func cmdWait(cmd *exec.Cmd, stage, name string, jsonName []byte, stdout, stderr 
 		go redirectJSONToStdout(stage, name, jsonName, stdout)
 	}
 
+	var status syscall.WaitStatus
 	err := cmd.Wait()
 	if err != nil {
 		if errors.Is(err, syscall.ECHILD) {
-			status, ok := getReapedChildExitStatus(cmd.Process.Pid)
+			s, ok := getReapedChildWaitStatus(cmd.Process.Pid)
 			if !ok {
 				maybeSetExitCode(1)
-				logErrorf("could not determine exit status of %s/%s", name, stage)
-			} else {
-				if status != 0 {
-					maybeSetExitCode(2)
-				}
-				logInfof("%s/%s with PID %d finished with status %d", name, stage, cmd.Process.Pid, status)
+				logErrorf("could not determine wait status of %s/%s", name, stage)
+				return
 			}
+			status = s
 		} else if errors.Is(err, context.Canceled) {
-			// If we are here, process finished successfully but the context has been canceled so err was set.
-			logInfof("%s/%s with PID %d finished with status %d", name, stage, cmd.Process.Pid, cmd.ProcessState.ExitCode())
+			// If we are here, process finished successfully but the context has been canceled so err was set, so we just ignore the err.
+			status = cmd.ProcessState.Sys().(syscall.WaitStatus)
 		} else if cmd.ProcessState != nil && !cmd.ProcessState.Success() {
-			maybeSetExitCode(2)
-			logInfof("%s/%s with PID %d finished with status %d", name, stage, cmd.Process.Pid, cmd.ProcessState.ExitCode())
+			// This is a condition in Wait when err is set when process fails, so we just ignore the err.
+			status = cmd.ProcessState.Sys().(syscall.WaitStatus)
 		} else {
 			maybeSetExitCode(1)
 			logErrorf("error waiting for %s/%s: %s", name, stage, err)
+			return
 		}
 	} else {
-		logInfof("%s/%s with PID %d finished with status %d", name, stage, cmd.Process.Pid, cmd.ProcessState.ExitCode())
+		status = cmd.ProcessState.Sys().(syscall.WaitStatus)
+	}
+
+	if status.Exited() {
+		if status.ExitStatus() != 0 {
+			maybeSetExitCode(2)
+		}
+		logInfof("%s/%s with PID %d finished with status %d", name, stage, cmd.Process.Pid, status.ExitStatus())
+	} else {
+		// If process finished because of the signal but we have not been stopping it, we see it is as a process error.
+		if ctx == nil || ctx.Err() == nil {
+			maybeSetExitCode(2)
+		}
+		logInfof("%s/%s with PID %d finished with signal %d", name, stage, cmd.Process.Pid, status.Signal())
 	}
 }
 
@@ -371,7 +387,7 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 	}
 	logInfof("%s/stop is running with PID %d", name, cmd.Process.Pid)
 
-	cmdWait(cmd, "stop", name, jsonName, stdout, stderr)
+	cmdWait(nil, cmd, "stop", name, jsonName, stdout, stderr)
 
 	return nil
 }
@@ -406,7 +422,7 @@ func runService(ctx context.Context, name, p string) error {
 	}
 	logInfof("%s/run is running with PID %d", name, cmd.Process.Pid)
 
-	cmdWait(cmd, "run", name, jsonName, stdout, stderr)
+	cmdWait(ctx, cmd, "run", name, jsonName, stdout, stderr)
 
 	// The service stopped. We stop all other services as well.
 	stopChildren()
