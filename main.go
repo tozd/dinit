@@ -329,7 +329,8 @@ func cmdWait(cmd *exec.Cmd, stage, name string, jsonName []byte, stdout, stderr 
 				logInfof("%s/%s with PID %d finished with status %d", name, stage, cmd.Process.Pid, status)
 			}
 		} else if errors.Is(err, context.Canceled) {
-			// Nothing.
+			// If we are here, process finished successfully but the context has been canceled so err was set.
+			logInfof("%s/%s with PID %d finished with status %d", name, stage, cmd.Process.Pid, cmd.ProcessState.ExitCode())
 		} else if cmd.ProcessState != nil && !cmd.ProcessState.Success() {
 			maybeSetExitCode(2)
 			logInfof("%s/%s with PID %d finished with status %d", name, stage, cmd.Process.Pid, cmd.ProcessState.ExitCode())
