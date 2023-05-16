@@ -332,7 +332,7 @@ func cmdWait(cmd *exec.Cmd, stage, name string, jsonName []byte, stdout, stderr 
 			// Nothing.
 		} else if cmd.ProcessState != nil && !cmd.ProcessState.Success() {
 			maybeSetExitCode(2)
-			logInfof("%s/%s with PID %d finished with status %d: %s", name, stage, cmd.Process.Pid, cmd.ProcessState.ExitCode())
+			logInfof("%s/%s with PID %d finished with status %d", name, stage, cmd.Process.Pid, cmd.ProcessState.ExitCode())
 		} else {
 			maybeSetExitCode(1)
 			logErrorf("error waiting for %s/%s: %s", name, stage, err)
