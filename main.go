@@ -359,6 +359,9 @@ func cmdWait(ctx context.Context, cmd *exec.Cmd, stage, name string, jsonName []
 	}
 }
 
+// We call maybeSetExitCode(1) early on an error and do not leave for error to
+// first propagate and then set it, so that during cleanup while the error is
+// propagating we do not set some other exit code first.
 func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error {
 	logInfof("stopping %s", name)
 	r := path.Join(p, "stop")
@@ -392,6 +395,9 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 	return nil
 }
 
+// We call maybeSetExitCode(1) early on an error and do not leave for error to
+// first propagate and then set it, so that during cleanup while the error is
+// propagating we do not set some other exit code first.
 func runService(ctx context.Context, name, p string) error {
 	logInfof("starting %s", name)
 	jsonName, err := json.Marshal(name)
@@ -417,7 +423,11 @@ func runService(ctx context.Context, name, p string) error {
 	}
 	err = cmd.Start()
 	if err != nil {
-		maybeSetExitCode(1)
+		// Start can fail when context is canceled, but we do not want to set
+		// the exit code because of the cancellation.
+		if !errors.Is(err, context.Canceled) {
+			maybeSetExitCode(1)
+		}
 		return err
 	}
 	logInfof("%s/run is running with PID %d", name, cmd.Process.Pid)
