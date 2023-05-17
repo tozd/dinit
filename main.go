@@ -59,11 +59,11 @@ func init() {
 
 // TODO: Expire old entries.
 var reapedChildren = map[int]syscall.WaitStatus{}
-var reapedChildrenMu sync.Mutex
+var reapedChildrenMu sync.RWMutex
 
 func getReapedChildWaitStatus(pid int) (syscall.WaitStatus, bool) {
-	reapedChildrenMu.Lock()
-	defer reapedChildrenMu.Unlock()
+	reapedChildrenMu.RLock()
+	defer reapedChildrenMu.RUnlock()
 	status, ok := reapedChildren[pid]
 	return status, ok
 }
