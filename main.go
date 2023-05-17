@@ -127,7 +127,25 @@ func main() {
 
 	go handleStopSignals()
 
-	status := runServices()
+	g, ctx := errgroup.WithContext(mainContext)
+
+	err := runServices(ctx, g)
+	if err != nil {
+		maybeSetExitCode(1)
+		logError(err)
+	} else {
+		err = g.Wait()
+		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				// Nothing.
+			} else {
+				maybeSetExitCode(1)
+				logError(err)
+			}
+		}
+	}
+
+	status := getExitCode()
 	logInfof("dinit finishing with status %d", status)
 	os.Exit(status)
 }
@@ -198,15 +216,13 @@ func stopChildren() {
 	mainCancel()
 }
 
-func runServices() int {
+func runServices(ctx context.Context, g *errgroup.Group) error {
 	entries, err := os.ReadDir(etcService)
 	if err != nil {
-		logError(err)
-		return 1
+		return err
 	}
 	found := false
 	errored := false
-	g, ctx := errgroup.WithContext(mainContext)
 	for _, entry := range entries {
 		name := entry.Name()
 		// We skip entries which start with dot.
@@ -231,23 +247,10 @@ func runServices() int {
 		})
 		found = true
 	}
-	if !found {
-		if !errored {
-			logWarn("no services found")
-		}
-	} else {
-		err := g.Wait()
-		if err != nil {
-			if errors.Is(err, context.Canceled) {
-				// Nothing.
-			} else {
-				maybeSetExitCode(1)
-				logError(err)
-			}
-		}
+	if !found && !errored {
+		logWarn("no services found")
 	}
-
-	return getExitCode()
+	return nil
 }
 
 func redirectToLogWithPrefix(l *log.Logger, stage, name string, reader io.Reader) {
