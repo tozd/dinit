@@ -61,12 +61,6 @@ func init() {
 var reapedChildren = map[int]syscall.WaitStatus{}
 var reapedChildrenMu sync.Mutex
 
-func setReapedChildWaitStatus(pid int, status syscall.WaitStatus) {
-	reapedChildrenMu.Lock()
-	defer reapedChildrenMu.Unlock()
-	reapedChildren[pid] = status
-}
-
 func getReapedChildWaitStatus(pid int) (syscall.WaitStatus, bool) {
 	reapedChildrenMu.Lock()
 	defer reapedChildrenMu.Unlock()
@@ -149,6 +143,13 @@ func handleSigChild() {
 }
 
 func reapChildren() {
+	// We have to lock between wait call and updating reapedChildren so that it
+	// does not happen that we the wait call was successful, but we have not yet
+	// update the reapedChildren while another goroutine already failed in its
+	// wait call and attempted to read from reapedChildren, failing there as well.
+	reapedChildrenMu.Lock()
+	defer reapedChildrenMu.Unlock()
+
 	for {
 		var status syscall.WaitStatus
 		var pid int
@@ -172,7 +173,7 @@ func reapChildren() {
 		} else {
 			logInfof("reaped process with PID %d and signal %d", pid, status.Signal())
 		}
-		setReapedChildWaitStatus(pid, status)
+		reapedChildren[pid] = status
 	}
 }
 
