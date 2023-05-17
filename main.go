@@ -143,37 +143,43 @@ func handleSigChild() {
 }
 
 func reapChildren() {
-	// We have to lock between wait call and updating reapedChildren so that it
-	// does not happen that we the wait call was successful, but we have not yet
-	// update the reapedChildren while another goroutine already failed in its
-	// wait call and attempted to read from reapedChildren, failing there as well.
-	reapedChildrenMu.Lock()
-	defer reapedChildrenMu.Unlock()
-
 	for {
-		var status syscall.WaitStatus
-		var pid int
-		var err error
-		for {
-			pid, err = syscall.Wait4(-1, &status, syscall.WNOHANG, nil)
-			if err == nil || !errors.Is(err, syscall.EINTR) {
-				break
+		stop := func() bool {
+			// We have to lock between wait call and updating reapedChildren so that it
+			// does not happen that we the wait call was successful, but we have not yet
+			// update the reapedChildren while another goroutine already failed in its
+			// wait call and attempted to read from reapedChildren, failing there as well.
+			reapedChildrenMu.Lock()
+			defer reapedChildrenMu.Unlock()
+
+			var status syscall.WaitStatus
+			var pid int
+			var err error
+			for {
+				pid, err = syscall.Wait4(-1, &status, syscall.WNOHANG, nil)
+				if err == nil || !errors.Is(err, syscall.EINTR) {
+					break
+				}
 			}
+			if errors.Is(err, syscall.ECHILD) {
+				// We do not have any unwaited-for children.
+				return true
+			}
+			if err != nil || pid == 0 {
+				// There was some other error or call would block.
+				return true
+			}
+			if status.Exited() {
+				logInfof("reaped process with PID %d and status %d", pid, status.ExitStatus())
+			} else {
+				logInfof("reaped process with PID %d and signal %d", pid, status.Signal())
+			}
+			reapedChildren[pid] = status
+			return false
+		}()
+		if stop {
+			break
 		}
-		if errors.Is(err, syscall.ECHILD) {
-			// We do not have any unwaited-for children.
-			return
-		}
-		if err != nil || pid == 0 {
-			// There was some other error or call would block.
-			return
-		}
-		if status.Exited() {
-			logInfof("reaped process with PID %d and status %d", pid, status.ExitStatus())
-		} else {
-			logInfof("reaped process with PID %d and signal %d", pid, status.Signal())
-		}
-		reapedChildren[pid] = status
 	}
 }
 
