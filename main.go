@@ -23,7 +23,7 @@ import (
 
 const etcService = "/etc/service"
 
-// TODO: Output milliseconds.
+// TODO: Output milliseconds. See: https://github.com/golang/go/issues/60249
 const logFlags = log.Ldate | log.Ltime | log.LUTC
 
 var logInfo = func(msg any) {
