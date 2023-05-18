@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -124,24 +125,21 @@ func main() {
 	}
 
 	go handleSigChild()
-
 	go handleStopSignals()
 
 	g, ctx := errgroup.WithContext(mainContext)
 
-	err := runServices(ctx, g)
+	g.Go(func() error {
+		return runServices(ctx, g)
+	})
+
+	err := g.Wait()
 	if err != nil {
-		maybeSetExitCode(1)
-		logError(err)
-	} else {
-		err = g.Wait()
-		if err != nil {
-			if errors.Is(err, context.Canceled) {
-				// Nothing.
-			} else {
-				maybeSetExitCode(1)
-				logError(err)
-			}
+		if errors.Is(err, context.Canceled) {
+			// Nothing.
+		} else {
+			maybeSetExitCode(1)
+			logError(err)
 		}
 	}
 
@@ -208,21 +206,17 @@ func handleStopSignals() {
 		logInfo("got SIGTERM/SIGINT/SIGQUIT signal, stopping children")
 		// Even if children complain being terminated, we still exit with 0.
 		maybeSetExitCode(0)
-		stopChildren()
+		mainCancel()
 	}
-}
-
-func stopChildren() {
-	mainCancel()
 }
 
 func runServices(ctx context.Context, g *errgroup.Group) error {
 	entries, err := os.ReadDir(etcService)
 	if err != nil {
+		maybeSetExitCode(1)
 		return err
 	}
 	found := false
-	errored := false
 	for _, entry := range entries {
 		name := entry.Name()
 		// We skip entries which start with dot.
@@ -233,10 +227,7 @@ func runServices(ctx context.Context, g *errgroup.Group) error {
 		info, err := os.Stat(p)
 		if err != nil {
 			maybeSetExitCode(1)
-			logError(err)
-			stopChildren()
-			errored = true
-			break
+			return err
 		}
 		// We skip anything which is not a directory.
 		if !info.IsDir() {
@@ -247,8 +238,9 @@ func runServices(ctx context.Context, g *errgroup.Group) error {
 		})
 		found = true
 	}
-	if !found && !errored {
-		logWarn("no services found")
+	if !found {
+		logWarn("no services found, finishing")
+		mainCancel()
 	}
 	return nil
 }
@@ -320,7 +312,7 @@ func redirectJSONToStdout(stage, name string, jsonName []byte, reader io.Reader)
 	}
 }
 
-func cmdWait(ctx context.Context, cmd *exec.Cmd, stage, name string, jsonName []byte, stdout, stderr io.ReadCloser) {
+func cmdWait(ctx context.Context, cmd *exec.Cmd, stage, name string, jsonName []byte, stdout, stderr io.ReadCloser) error {
 	go redirectToStderrWithPrefix(stage, name, stderr)
 
 	if os.Getenv("DINIT_JSON_STDOUT") == "0" {
@@ -336,8 +328,7 @@ func cmdWait(ctx context.Context, cmd *exec.Cmd, stage, name string, jsonName []
 			s, ok := getReapedChildWaitStatus(cmd.Process.Pid)
 			if !ok {
 				maybeSetExitCode(1)
-				logErrorf("could not determine wait status of %s/%s", name, stage)
-				return
+				return fmt.Errorf("could not determine wait status of %s/%s", name, stage)
 			}
 			status = s
 		} else if errors.Is(err, context.Canceled) {
@@ -348,8 +339,7 @@ func cmdWait(ctx context.Context, cmd *exec.Cmd, stage, name string, jsonName []
 			status = cmd.ProcessState.Sys().(syscall.WaitStatus)
 		} else {
 			maybeSetExitCode(1)
-			logErrorf("error waiting for %s/%s: %s", name, stage, err)
-			return
+			return fmt.Errorf("error waiting for %s/%s: %w", name, stage, err)
 		}
 	} else {
 		status = cmd.ProcessState.Sys().(syscall.WaitStatus)
@@ -367,6 +357,8 @@ func cmdWait(ctx context.Context, cmd *exec.Cmd, stage, name string, jsonName []
 		}
 		logInfof("%s/%s with PID %d finished with signal %d", name, stage, cmd.Process.Pid, status.Signal())
 	}
+
+	return nil
 }
 
 // We call maybeSetExitCode(1) early on an error and do not leave for error to
@@ -398,11 +390,10 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 		maybeSetExitCode(1)
 		return err
 	}
+
 	logInfof("%s/stop is running with PID %d", name, cmd.Process.Pid)
 
-	cmdWait(nil, cmd, "stop", name, jsonName, stdout, stderr)
-
-	return nil
+	return cmdWait(nil, cmd, "stop", name, jsonName, stdout, stderr)
 }
 
 // We call maybeSetExitCode(1) early on an error and do not leave for error to
@@ -440,12 +431,15 @@ func runService(ctx context.Context, name, p string) error {
 		}
 		return err
 	}
+	// When the service stops (which is when this function returns)
+	// we stop all other services as well and finish.
+	defer mainCancel()
+
 	logInfof("%s/run is running with PID %d", name, cmd.Process.Pid)
 
-	cmdWait(ctx, cmd, "run", name, jsonName, stdout, stderr)
+	return cmdWait(ctx, cmd, "run", name, jsonName, stdout, stderr)
+}
 
-	// The service stopped. We stop all other services as well.
-	stopChildren()
 
 	return nil
 }
