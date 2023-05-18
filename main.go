@@ -245,7 +245,7 @@ func runServices(ctx context.Context, g *errgroup.Group) error {
 	return nil
 }
 
-func redirectToLogWithPrefix(l *log.Logger, stage, name string, reader io.Reader) {
+func redirectToLogWithPrefix(l *log.Logger, stage, name, input string, reader io.Reader) {
 	scanner := bufio.NewScanner(reader)
 
 	res := true
@@ -260,19 +260,19 @@ func redirectToLogWithPrefix(l *log.Logger, stage, name string, reader io.Reader
 	err := scanner.Err()
 	// Reader can get closed and we ignore that.
 	if err != nil && !errors.Is(err, os.ErrClosed) {
-		logWarnf("error reading stderr from %s/%s: %s", name, stage, err)
+		logWarnf("error reading %s from %s/%s: %s", input, name, stage, err)
 	}
 }
 
-func redirectToStderrWithPrefix(stage, name string, reader io.Reader) {
-	redirectToLogWithPrefix(log.Default(), stage, name, reader)
+func redirectStderrWithPrefix(stage, name string, reader io.Reader) {
+	redirectToLogWithPrefix(log.Default(), stage, name, "stderr", reader)
 }
 
-func redirectToStdoutWithPrefix(stage, name string, reader io.Reader) {
-	redirectToLogWithPrefix(stdOutLog, stage, name, reader)
+func redirectStdoutWithPrefix(stage, name string, reader io.Reader) {
+	redirectToLogWithPrefix(stdOutLog, stage, name, "stdout", reader)
 }
 
-func redirectJSONToStdout(stage, name string, jsonName []byte, reader io.Reader) {
+func redirectJSON(stage, name string, jsonName []byte, reader io.Reader) {
 	scanner := bufio.NewScanner(reader)
 	timeBuffer := make([]byte, 30)
 
@@ -313,12 +313,12 @@ func redirectJSONToStdout(stage, name string, jsonName []byte, reader io.Reader)
 }
 
 func cmdWait(ctx context.Context, cmd *exec.Cmd, stage, name string, jsonName []byte, stdout, stderr io.ReadCloser) error {
-	go redirectToStderrWithPrefix(stage, name, stderr)
+	go redirectStderrWithPrefix(stage, name, stderr)
 
 	if os.Getenv("DINIT_JSON_STDOUT") == "0" {
-		go redirectToStdoutWithPrefix(stage, name, stdout)
+		go redirectStdoutWithPrefix(stage, name, stdout)
 	} else {
-		go redirectJSONToStdout(stage, name, jsonName, stdout)
+		go redirectJSON(stage, name, jsonName, stdout)
 	}
 
 	var status syscall.WaitStatus
