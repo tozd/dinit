@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -24,8 +25,16 @@ import (
 
 const etcService = "/etc/service"
 
+// If a process stays unknown for 2 intervals, reparenting policy is triggered for it.
+const reparentingInterval = 10 * time.Second
+
+// How long to wait after SIGTERM to send SIGKILL to a reparented process?
+const reparentingKillTimeout = 30 * time.Second
+
 // TODO: Output milliseconds. See: https://github.com/golang/go/issues/60249
 const logFlags = log.Ldate | log.Ltime | log.LUTC
+
+type policyFunc = func(ctx context.Context, g *errgroup.Group, pid int) error
 
 var logInfo = func(msg any) {
 	log.Printf("dinit: info: %s", msg)
@@ -129,6 +138,22 @@ func main() {
 
 	g, ctx := errgroup.WithContext(mainContext)
 
+	switch policy := os.Getenv("DINIT_REPARENTING_POLICY"); policy {
+	case "adopt":
+		g.Go(func() error {
+			return reparenting(ctx, g, reparentingAdopt)
+		})
+	case "terminate", "": // Default reparenting policy.
+		g.Go(func() error {
+			return reparenting(ctx, g, reparentingTerminate)
+		})
+	case "ignore":
+	default:
+		logErrorf("invalid reparenting policy %s", policy)
+		// We haven't yet used the errgroup, so we can just exit.
+		os.Exit(1)
+	}
+
 	g.Go(func() error {
 		return runServices(ctx, g)
 	})
@@ -208,6 +233,33 @@ func handleStopSignals() {
 		maybeSetExitCode(0)
 		mainCancel()
 	}
+}
+
+var runningChildren = map[int]bool{}
+var runningChildrenMu sync.RWMutex
+
+func setRunningChildPid(pid int) {
+	runningChildrenMu.Lock()
+	defer runningChildrenMu.Unlock()
+	if runningChildren[pid] {
+		panic(errors.New("setting running child PID which already exists"))
+	}
+	runningChildren[pid] = true
+}
+
+func removeRunningChildPid(pid int) {
+	runningChildrenMu.Lock()
+	defer runningChildrenMu.Unlock()
+	if !runningChildren[pid] {
+		panic(errors.New("removing running child PID which does not exist"))
+	}
+	delete(runningChildren, pid)
+}
+
+func hasRunningChildPid(pid int) bool {
+	runningChildrenMu.RLock()
+	defer runningChildrenMu.RUnlock()
+	return runningChildren[pid]
 }
 
 func runServices(ctx context.Context, g *errgroup.Group) error {
@@ -393,6 +445,8 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 		maybeSetExitCode(1)
 		return err
 	}
+	setRunningChildPid(cmd.Process.Pid)
+	defer removeRunningChildPid(cmd.Process.Pid)
 
 	logInfof("%s/stop is running with PID %d", name, cmd.Process.Pid)
 
@@ -434,6 +488,8 @@ func runService(ctx context.Context, name, p string) error {
 		}
 		return err
 	}
+	setRunningChildPid(cmd.Process.Pid)
+	defer removeRunningChildPid(cmd.Process.Pid)
 	// When the service stops (which is when this function returns)
 	// we stop all other services as well and exit ourselves.
 	defer mainCancel()
@@ -443,6 +499,191 @@ func runService(ctx context.Context, name, p string) error {
 	return cmdWait(ctx, cmd, "run", name, jsonName, stdout, stderr)
 }
 
+var processedPids = map[int]bool{}
+var processedPidsMu sync.Mutex
+
+// processPid could be called multiple times on the same PID so
+// it has to make sure it behaves well if that happens.
+func processPid(ctx context.Context, g *errgroup.Group, policy policyFunc, pid int) {
+	processedPidsMu.Lock()
+	defer processedPidsMu.Unlock()
+	if processedPids[pid] {
+		return
+	}
+	// We check once more if this is our own child. We check this again because
+	// it could happen that a child was made between us calling hasRunningChildPid
+	// and then calling processPid in reparenting function.
+	if hasRunningChildPid(pid) {
+		return
+	}
+	processedPids[pid] = true
+	g.Go(func() error {
+		// We call removeProcessedPid to not have processedPids grow and grow.
+		// We can do this at this point and it will not make processPid misbehave if it is called
+		// multiple times on the same PID, because or a) reparentingAdopt has set runningChildren
+		// and we check hasRunningChildPid above, or b) reparentingTerminate has terminated
+		// the child and there is not much ill if we try to terminate the same PID multiple times.
+		defer removeProcessedPid(pid)
+		return policy(ctx, g, pid)
+	})
+}
+
+func removeProcessedPid(pid int) {
+	processedPidsMu.Lock()
+	defer processedPidsMu.Unlock()
+	if !processedPids[pid] {
+		panic(errors.New("removing processed PID which does not exist"))
+	}
+	delete(processedPids, pid)
+}
+
+func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) error {
+	// Processes get reparented to the main thread which has task ID matching PID.
+	childrenPath := fmt.Sprintf("/proc/%d/task/%d/children", os.Getpid(), os.Getpid())
+	unknownPids := map[int]bool{}
+	ticker := time.NewTicker(reparentingInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			for unknownPid := range unknownPids {
+				if hasRunningChildPid(unknownPid) {
+					delete(unknownPids, unknownPid)
+				}
+			}
+			childrenData, err := os.ReadFile(childrenPath)
+			if err != nil {
+				maybeSetExitCode(1)
+				return fmt.Errorf("unable to read process children from %s: %w", childrenPath, err)
+			}
+			childrenPids := strings.Fields(string(childrenData))
+			newUnknownPids := map[int]bool{}
+			for _, childPid := range childrenPids {
+				p, err := strconv.Atoi(childPid)
+				if err != nil {
+					return fmt.Errorf("failed to parse PID %s: %w", childPid, err)
+				}
+				if hasRunningChildPid(p) {
+					// This is our own child.
+				} else if unknownPids[p] {
+					// This is the second time we encounter this PID. We call configured policy.
+					processPid(ctx, g, policy, p)
+				} else {
+					// This is the first time we encounter this PID. We save it to check it again
+					// the next tick to give time that in meantime it gets stored in runningChildren.
+					newUnknownPids[p] = true
+				}
+			}
+			unknownPids = newUnknownPids
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+func getProcessCommandLine(pid int) (string, error) {
+	cmdlinePath := fmt.Sprintf("/proc/%d/cmdline", pid)
+	cmdlineData, err := os.ReadFile(cmdlinePath)
+	if err != nil {
+		return "", err
+	}
+	return string(bytes.ReplaceAll(cmdlineData, []byte("\x00"), []byte(" "))), nil
+}
+
+func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
+	cmdline, err := getProcessCommandLine(pid)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			// Not a problem, process does not exist anymore, we do not have to do anything about it anymore.
+			// In this case it is OK if reparentingAdopt gets called multiple times,
+			// it will just not do anything multiple times.
+			return nil
+		}
+		return err
+	}
+	logWarnf("adopting reparented child process with PID %d: %s", pid, cmdline)
+
+	return nil
+}
+
+func reparentingTerminate(ctx context.Context, g *errgroup.Group, pid int) error {
+	cmdline, err := getProcessCommandLine(pid)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			// Not a problem, process does not exist anymore, we do not have to do anything about it anymore.
+			return nil
+		}
+		return err
+	}
+	logWarnf("terminating reparented child process with PID %d: %s", pid, cmdline)
+
+	p, _ := os.FindProcess(pid) // This call cannot fail.
+	done := make(chan struct{})
+	defer close(done)
+
+	g.Go(func() error {
+		logInfof("sending SIGTERM to PID %d", pid)
+		err := p.Signal(syscall.SIGTERM)
+		if err != nil {
+			if errors.Is(err, os.ErrProcessDone) {
+				return nil
+			}
+			return err
+		}
+
+		// We wait between SIGTERM and SIGKILL.
+		timer := time.NewTimer(reparentingKillTimeout)
+		defer timer.Stop()
+
+		// We do not care about ctx cancellation. Even if ctx is canceled we still want to
+		// give full reparentingKillTimeout to the process before killing it. If that is
+		// longer than what Docker container has as a whole, everything will be killed anyway.
+		select {
+		case <-timer.C:
+			// We waited enough after SIGTERM, we continue after the select.
+		case <-done:
+			// The process finished or there was an error waiting for it.
+			// In any case we do not have anything to do anymore.
+			return nil
+		}
+
+		logInfof("sending SIGKILL to PID %d", pid)
+		err = p.Signal(syscall.SIGKILL)
+		if err != nil {
+			if errors.Is(err, os.ErrProcessDone) {
+				return nil
+			}
+			return err
+		}
+
+		return nil
+	})
+
+	// By waiting we are also making sure that dinit does not exit before
+	// this reparented child process exits.
+	var status syscall.WaitStatus
+	state, err := p.Wait()
+	if err != nil {
+		if errors.Is(err, syscall.ECHILD) {
+			s, ok := getReapedChildWaitStatus(pid)
+			if !ok {
+				maybeSetExitCode(1)
+				return fmt.Errorf("could not determine wait status of reparented child process with PID %d", pid)
+			}
+			status = s
+		} else {
+			maybeSetExitCode(1)
+			return fmt.Errorf("error waiting for reparented child process with PID %d: %w", pid, err)
+		}
+	} else {
+		status = state.Sys().(syscall.WaitStatus)
+	}
+
+	if status.Exited() {
+		logInfof("reparented child process with PID %d finished with status %d", pid, status.ExitStatus())
+	} else {
+		logInfof("reparented child process with PID %d finished with signal %d", pid, status.Signal())
+	}
 
 	return nil
 }
