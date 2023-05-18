@@ -384,8 +384,11 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 		// If stop program does not exist, we send SIGTERM instead.
 		if errors.Is(err, os.ErrNotExist) {
 			logInfof("sending SIGTERM to PID %d for %s", runCmd.Process.Pid, name)
-			_ = runCmd.Process.Signal(syscall.SIGTERM)
-			return nil
+			err := runCmd.Process.Signal(syscall.SIGTERM)
+			if errors.Is(err, os.ErrProcessDone) {
+				return nil
+			}
+			return err
 		}
 		maybeSetExitCode(1)
 		return err
