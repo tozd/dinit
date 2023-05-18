@@ -144,7 +144,7 @@ func main() {
 	}
 
 	status := getExitCode()
-	logInfof("dinit finishing with status %d", status)
+	logInfof("dinit exiting with status %d", status)
 	os.Exit(status)
 }
 
@@ -239,7 +239,7 @@ func runServices(ctx context.Context, g *errgroup.Group) error {
 		found = true
 	}
 	if !found {
-		logWarn("no services found, finishing")
+		logWarn("no services found, exiting")
 		mainCancel()
 	}
 	return nil
@@ -435,7 +435,7 @@ func runService(ctx context.Context, name, p string) error {
 		return err
 	}
 	// When the service stops (which is when this function returns)
-	// we stop all other services as well and finish.
+	// we stop all other services as well and exit ourselves.
 	defer mainCancel()
 
 	logInfof("%s/run is running with PID %d", name, cmd.Process.Pid)
