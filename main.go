@@ -312,7 +312,7 @@ func redirectToLogWithPrefix(l *log.Logger, stage, name, input string, reader io
 	err := scanner.Err()
 	// Reader can get closed and we ignore that.
 	if err != nil && !errors.Is(err, os.ErrClosed) {
-		logWarnf("error reading %s from %s/%s: %s", input, name, stage, err)
+		logWarnf("%s/%s: error reading %s: %s", name, stage, input, err)
 	}
 }
 
@@ -349,10 +349,10 @@ func redirectJSON(stage, name string, jsonName []byte, reader io.Reader) {
 				buffer.WriteString("\n")
 				_, err := os.Stdout.Write(buffer.Bytes())
 				if err != nil {
-					logWarnf("error writing stdout for %s/%s: %s", name, stage, err)
+					logWarnf("%s/%s: error writing stdout: %s", name, stage, err)
 				}
 			} else {
-				logWarnf("not JSON stdout from %s/%s: %s\n", name, stage, line)
+				logWarnf("%s/%s: not JSON stdout: %s\n", name, stage, line)
 			}
 		}
 	}
@@ -360,7 +360,7 @@ func redirectJSON(stage, name string, jsonName []byte, reader io.Reader) {
 	err := scanner.Err()
 	// Reader can get closed and we ignore that.
 	if err != nil && !errors.Is(err, os.ErrClosed) {
-		logWarnf("error reading stdout from %s: %s", name, err)
+		logWarnf("%s/%s: error reading stdout: %s", name, stage, err)
 	}
 }
 
@@ -380,7 +380,7 @@ func cmdWait(ctx context.Context, cmd *exec.Cmd, stage, name string, jsonName []
 			s, ok := getReapedChildWaitStatus(cmd.Process.Pid)
 			if !ok {
 				maybeSetExitCode(1)
-				return fmt.Errorf("could not determine wait status of %s/%s", name, stage)
+				return fmt.Errorf("%s/%s: could not determine wait status", name, stage)
 			}
 			status = s
 		} else if errors.Is(err, context.Canceled) {
@@ -391,7 +391,7 @@ func cmdWait(ctx context.Context, cmd *exec.Cmd, stage, name string, jsonName []
 			status = cmd.ProcessState.Sys().(syscall.WaitStatus)
 		} else {
 			maybeSetExitCode(1)
-			return fmt.Errorf("error waiting for %s/%s: %w", name, stage, err)
+			return fmt.Errorf("%s/%s: error waiting for the process: %w", name, stage, err)
 		}
 	} else {
 		status = cmd.ProcessState.Sys().(syscall.WaitStatus)
@@ -401,13 +401,13 @@ func cmdWait(ctx context.Context, cmd *exec.Cmd, stage, name string, jsonName []
 		if status.ExitStatus() != 0 {
 			maybeSetExitCode(2)
 		}
-		logInfof("%s/%s with PID %d finished with status %d", name, stage, cmd.Process.Pid, status.ExitStatus())
+		logInfof("%s/%s: PID %d finished with status %d", name, stage, cmd.Process.Pid, status.ExitStatus())
 	} else {
 		// If process finished because of the signal but we have not been stopping it, we see it is as a process error.
 		if ctx == nil || ctx.Err() == nil {
 			maybeSetExitCode(2)
 		}
-		logInfof("%s/%s with PID %d finished with signal %d", name, stage, cmd.Process.Pid, status.Signal())
+		logInfof("%s/%s: PID %d finished with signal %d", name, stage, cmd.Process.Pid, status.Signal())
 	}
 
 	return nil
@@ -417,7 +417,7 @@ func cmdWait(ctx context.Context, cmd *exec.Cmd, stage, name string, jsonName []
 // first propagate and then set it, so that during cleanup while the error is
 // propagating we do not set some other exit code first.
 func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error {
-	logInfof("stopping %s", name)
+	logInfof("%s: stopping", name)
 	r := path.Join(p, "stop")
 	cmd := exec.Command(r)
 	cmd.Dir = p
@@ -435,7 +435,7 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 	if err != nil {
 		// If stop program does not exist, we send SIGTERM instead.
 		if errors.Is(err, os.ErrNotExist) {
-			logInfof("sending SIGTERM to PID %d for %s", runCmd.Process.Pid, name)
+			logInfof("%s/run: sending SIGTERM to PID %d", name, runCmd.Process.Pid)
 			err := runCmd.Process.Signal(syscall.SIGTERM)
 			if errors.Is(err, os.ErrProcessDone) {
 				return nil
@@ -448,7 +448,7 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 	setRunningChildPid(cmd.Process.Pid)
 	defer removeRunningChildPid(cmd.Process.Pid)
 
-	logInfof("%s/stop is running with PID %d", name, cmd.Process.Pid)
+	logInfof("%s/stop: running with PID %d", name, cmd.Process.Pid)
 
 	return cmdWait(nil, cmd, "stop", name, jsonName, stdout, stderr)
 }
@@ -457,7 +457,7 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 // first propagate and then set it, so that during cleanup while the error is
 // propagating we do not set some other exit code first.
 func runService(ctx context.Context, name, p string) error {
-	logInfof("starting %s", name)
+	logInfof("%s: starting", name)
 	jsonName, err := json.Marshal(name)
 	if err != nil {
 		maybeSetExitCode(1)
@@ -494,7 +494,7 @@ func runService(ctx context.Context, name, p string) error {
 	// we stop all other services as well and exit ourselves.
 	defer mainCancel()
 
-	logInfof("%s/run is running with PID %d", name, cmd.Process.Pid)
+	logInfof("%s/run: running with PID %d", name, cmd.Process.Pid)
 
 	return cmdWait(ctx, cmd, "run", name, jsonName, stdout, stderr)
 }
@@ -617,6 +617,11 @@ func reparentingTerminate(ctx context.Context, g *errgroup.Group, pid int) error
 		}
 		return err
 	}
+	name := "unknown"
+	if fields := strings.Fields(cmdline); len(fields) > 0 {
+		name = fields[0]
+	}
+
 	logWarnf("terminating reparented child process with PID %d: %s", pid, cmdline)
 
 	p, _ := os.FindProcess(pid) // This call cannot fail.
@@ -624,7 +629,7 @@ func reparentingTerminate(ctx context.Context, g *errgroup.Group, pid int) error
 	defer close(done)
 
 	g.Go(func() error {
-		logInfof("sending SIGTERM to PID %d", pid)
+		logInfof("%s/%d: sending SIGTERM to PID %d", name, pid, pid)
 		err := p.Signal(syscall.SIGTERM)
 		if err != nil {
 			if errors.Is(err, os.ErrProcessDone) {
@@ -649,7 +654,7 @@ func reparentingTerminate(ctx context.Context, g *errgroup.Group, pid int) error
 			return nil
 		}
 
-		logInfof("sending SIGKILL to PID %d", pid)
+		logInfof("%s/%d: sending SIGKILL to PID %d", name, pid, pid)
 		err = p.Signal(syscall.SIGKILL)
 		if err != nil {
 			if errors.Is(err, os.ErrProcessDone) {
@@ -670,21 +675,21 @@ func reparentingTerminate(ctx context.Context, g *errgroup.Group, pid int) error
 			s, ok := getReapedChildWaitStatus(pid)
 			if !ok {
 				maybeSetExitCode(1)
-				return fmt.Errorf("could not determine wait status of reparented child process with PID %d", pid)
+				return fmt.Errorf("%s/%d: could not determine wait status", name, pid)
 			}
 			status = s
 		} else {
 			maybeSetExitCode(1)
-			return fmt.Errorf("error waiting for reparented child process with PID %d: %w", pid, err)
+			return fmt.Errorf("%s/%d: error waiting for the process: %w", name, pid, err)
 		}
 	} else {
 		status = state.Sys().(syscall.WaitStatus)
 	}
 
 	if status.Exited() {
-		logInfof("reparented child process with PID %d finished with status %d", pid, status.ExitStatus())
+		logInfof("%s/%d: PID %d finished with status %d", name, pid, pid, status.ExitStatus())
 	} else {
-		logInfof("reparented child process with PID %d finished with signal %d", pid, status.Signal())
+		logInfof("%s/%d: PID %d finished with signal %d", name, pid, pid, status.Signal())
 	}
 
 	return nil
