@@ -502,7 +502,7 @@ func runService(ctx context.Context, name, p string) error {
 var processedPids = map[int]bool{}
 var processedPidsMu sync.Mutex
 
-// processPid could be called multiple times on the same PID so
+// processPid could be called multiple times on the same PID (of the same process) so
 // it has to make sure it behaves well if that happens.
 func processPid(ctx context.Context, g *errgroup.Group, policy policyFunc, pid int) {
 	processedPidsMu.Lock()
@@ -511,18 +511,18 @@ func processPid(ctx context.Context, g *errgroup.Group, policy policyFunc, pid i
 		return
 	}
 	// We check once more if this is our own child. We check this again because
-	// it could happen that a child was made between us calling hasRunningChildPid
-	// and then calling processPid in reparenting function.
+	// it could happen that a child was made between us calling in reparenting
+	// function first hasRunningChildPid and then processPid.
 	if hasRunningChildPid(pid) {
 		return
 	}
 	processedPids[pid] = true
 	g.Go(func() error {
 		// We call removeProcessedPid to not have processedPids grow and grow.
-		// We can do this at this point and it will not make processPid misbehave if it is called
-		// multiple times on the same PID, because or a) reparentingAdopt has set runningChildren
-		// and we check hasRunningChildPid above, or b) reparentingTerminate has terminated
-		// the child and there is not much ill if we try to terminate the same PID multiple times.
+		// We can do this at this point and it will not make processPid misbehave if it is
+		// called multiple times on the same PID (of the same process), because both policy
+		// functions return when the associated process has finished and can be called
+		// without an issue with PID of a non-existing process (before PID gets reused).
 		defer removeProcessedPid(pid)
 		return policy(ctx, g, pid)
 	})
@@ -596,7 +596,7 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
 		if errors.Is(err, os.ErrNotExist) {
 			// Not a problem, process does not exist anymore, we do not have to do anything about it anymore.
 			// In this case it is OK if reparentingAdopt gets called multiple times,
-			// it will just not do anything multiple times.
+			// it will just not do anything anymore.
 			return nil
 		}
 		return err
@@ -611,6 +611,8 @@ func reparentingTerminate(ctx context.Context, g *errgroup.Group, pid int) error
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			// Not a problem, process does not exist anymore, we do not have to do anything about it anymore.
+			// In this case it is OK if reparentingTerminate gets called multiple times,
+			// it will just not do anything anymore.
 			return nil
 		}
 		return err
