@@ -459,6 +459,7 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 			if errors.Is(err, os.ErrProcessDone) {
 				return nil
 			}
+			maybeSetExitCode(1)
 			return err
 		}
 		maybeSetExitCode(1)
@@ -580,6 +581,7 @@ func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) erro
 			for _, childPid := range childrenPids {
 				p, err := strconv.Atoi(childPid)
 				if err != nil {
+					maybeSetExitCode(1)
 					return fmt.Errorf("failed to parse PID %s: %w", childPid, err)
 				}
 				if hasRunningChildPid(p) {
@@ -618,6 +620,7 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
 			// it will just not do anything anymore.
 			return nil
 		}
+		maybeSetExitCode(1)
 		return err
 	}
 	logWarnf("adopting reparented child process with PID %d: %s", pid, cmdline)
@@ -634,6 +637,7 @@ func reparentingTerminate(ctx context.Context, g *errgroup.Group, pid int) error
 			// it will just not do anything anymore.
 			return nil
 		}
+		maybeSetExitCode(1)
 		return err
 	}
 	name := "unknown"
@@ -655,6 +659,7 @@ func reparentingTerminate(ctx context.Context, g *errgroup.Group, pid int) error
 			if errors.Is(err, os.ErrProcessDone) {
 				return nil
 			}
+			maybeSetExitCode(1)
 			return err
 		}
 
@@ -680,6 +685,7 @@ func reparentingTerminate(ctx context.Context, g *errgroup.Group, pid int) error
 			if errors.Is(err, os.ErrProcessDone) {
 				return nil
 			}
+			maybeSetExitCode(1)
 			return err
 		}
 
