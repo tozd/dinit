@@ -365,13 +365,31 @@ func redirectJSON(stage, name string, jsonName []byte, reader io.Reader) {
 }
 
 func cmdWait(ctx context.Context, cmd *exec.Cmd, stage, name string, jsonName []byte, stdout, stderr io.ReadCloser) error {
-	go redirectStderrWithPrefix(stage, name, stderr)
+	// We do not care about context because we want logging redirects
+	// to operate as long as processes have stdout and stderr open.
+	logGroup := errgroup.Group{}
+
+	logGroup.Go(func() error {
+		redirectStderrWithPrefix(stage, name, stderr)
+		return nil
+	})
 
 	if os.Getenv("DINIT_JSON_STDOUT") == "0" {
-		go redirectStdoutWithPrefix(stage, name, stdout)
+		logGroup.Go(func() error {
+			redirectStdoutWithPrefix(stage, name, stdout)
+			return nil
+		})
 	} else {
-		go redirectJSON(stage, name, jsonName, stdout)
+		logGroup.Go(func() error {
+			redirectJSON(stage, name, jsonName, stdout)
+			return nil
+		})
 	}
+
+	// We do not return errors, so we ignore the error here.
+	// We have to first wait for reads from stdout and stderr pipes
+	// to complete before we can call cmd.Wait.
+	_ = logGroup.Wait()
 
 	var status syscall.WaitStatus
 	err := cmd.Wait()
