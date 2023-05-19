@@ -389,7 +389,8 @@ func cmdWait(ctx context.Context, cmd *exec.Cmd, stage, name string, jsonName []
 	// We do not return errors, so we ignore the error here.
 	// We have to first wait for reads from stdout and stderr pipes
 	// to complete before we can call cmd.Wait.
-	_ = logGroup.Wait()
+	// TODO: Re-enable once it works. See: https://github.com/golang/go/issues/60309
+	// _ = logGroup.Wait()
 
 	var status syscall.WaitStatus
 	err := cmd.Wait()
