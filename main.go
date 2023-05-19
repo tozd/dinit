@@ -227,8 +227,8 @@ func reapChildren() {
 func handleStopSignals() {
 	c := make(chan os.Signal, 3)
 	signal.Notify(c, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
-	for range c {
-		logInfo("got SIGTERM/SIGINT/SIGQUIT signal, stopping children")
+	for s := range c {
+		logInfof("got signal %d, stopping children", s)
 		// Even if children complain being terminated, we still exit with 0.
 		maybeSetExitCode(0)
 		mainCancel()
