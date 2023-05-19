@@ -640,6 +640,7 @@ func reparentingTerminate(ctx context.Context, g *errgroup.Group, pid int) error
 	if fields := strings.Fields(cmdline); len(fields) > 0 {
 		name = fields[0]
 	}
+	stage := strconv.Itoa(pid)
 
 	logWarnf("terminating reparented child process with PID %d: %s", pid, cmdline)
 
@@ -648,7 +649,7 @@ func reparentingTerminate(ctx context.Context, g *errgroup.Group, pid int) error
 	defer close(done)
 
 	g.Go(func() error {
-		logInfof("%s/%d: sending SIGTERM to PID %d", name, pid, pid)
+		logInfof("%s/%s: sending SIGTERM to PID %d", name, stage, pid)
 		err := p.Signal(syscall.SIGTERM)
 		if err != nil {
 			if errors.Is(err, os.ErrProcessDone) {
@@ -673,7 +674,7 @@ func reparentingTerminate(ctx context.Context, g *errgroup.Group, pid int) error
 			return nil
 		}
 
-		logInfof("%s/%d: sending SIGKILL to PID %d", name, pid, pid)
+		logInfof("%s/%s: sending SIGKILL to PID %d", name, stage, pid)
 		err = p.Signal(syscall.SIGKILL)
 		if err != nil {
 			if errors.Is(err, os.ErrProcessDone) {
@@ -694,21 +695,21 @@ func reparentingTerminate(ctx context.Context, g *errgroup.Group, pid int) error
 			s, ok := getReapedChildWaitStatus(pid)
 			if !ok {
 				maybeSetExitCode(1)
-				return fmt.Errorf("%s/%d: could not determine wait status", name, pid)
+				return fmt.Errorf("%s/%s: could not determine wait status", name, stage)
 			}
 			status = s
 		} else {
 			maybeSetExitCode(1)
-			return fmt.Errorf("%s/%d: error waiting for the process: %w", name, pid, err)
+			return fmt.Errorf("%s/%s: error waiting for the process: %w", name, stage, err)
 		}
 	} else {
 		status = state.Sys().(syscall.WaitStatus)
 	}
 
 	if status.Exited() {
-		logInfof("%s/%d: PID %d finished with status %d", name, pid, pid, status.ExitStatus())
+		logInfof("%s/%s: PID %d finished with status %d", name, stage, pid, status.ExitStatus())
 	} else {
-		logInfof("%s/%d: PID %d finished with signal %d", name, pid, pid, status.Signal())
+		logInfof("%s/%s: PID %d finished with signal %d", name, stage, pid, status.Signal())
 	}
 
 	return nil
