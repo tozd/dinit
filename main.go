@@ -304,9 +304,7 @@ func runServices(ctx context.Context, g *errgroup.Group) error {
 	return nil
 }
 
-func redirectToLogWithPrefix(l *log.Logger, stage, name, input string, reader io.ReadCloser) {
-	defer reader.Close()
-
+func redirectToLogWithPrefix(l *log.Logger, stage, name, input string, reader io.Reader) {
 	scanner := bufio.NewScanner(reader)
 
 	res := true
@@ -325,17 +323,15 @@ func redirectToLogWithPrefix(l *log.Logger, stage, name, input string, reader io
 	}
 }
 
-func redirectStderrWithPrefix(stage, name string, reader io.ReadCloser) {
+func redirectStderrWithPrefix(stage, name string, reader io.Reader) {
 	redirectToLogWithPrefix(log.Default(), stage, name, "stderr", reader)
 }
 
-func redirectStdoutWithPrefix(stage, name string, reader io.ReadCloser) {
+func redirectStdoutWithPrefix(stage, name string, reader io.Reader) {
 	redirectToLogWithPrefix(stdOutLog, stage, name, "stdout", reader)
 }
 
-func redirectJSON(stage, name string, jsonName []byte, reader io.ReadCloser) {
-	defer reader.Close()
-
+func redirectJSON(stage, name string, jsonName []byte, reader io.Reader) {
 	scanner := bufio.NewScanner(reader)
 	timeBuffer := make([]byte, 30)
 
@@ -377,10 +373,7 @@ func redirectJSON(stage, name string, jsonName []byte, reader io.ReadCloser) {
 
 func cmdWait(ctx context.Context, cmd *exec.Cmd, stage, name string, jsonName []byte, stdout, stderr io.ReadCloser) error {
 	// We do not care about context because we want logging redirects to operate
-	// as long as stdout and stderr are open. This could be longer than the direct
-	// child process is running because they could be further inherited (or duplicated)
-	// by other processes made by the direct child process. These goroutines close
-	// given stdout and stderr readers once they are done with them.
+	// as long as stdout and stderr are open
 	go redirectStderrWithPrefix(stage, name, stderr)
 	if os.Getenv("DINIT_JSON_STDOUT") == "0" {
 		go redirectStdoutWithPrefix(stage, name, stdout)
@@ -443,12 +436,16 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 		return err
 	}
 	cmd.Stdout = stdoutWriter
+	// Once the process finishes, we close the stdout reader. This stops logging redirect.
+	defer stdout.Close()
 	stderr, stderrWriter, err := os.Pipe()
 	if err != nil {
 		maybeSetExitCode(1)
 		return err
 	}
 	cmd.Stderr = stderrWriter
+	// Once the process finishes, we close the stderr reader. This stops logging redirect.
+	defer stderr.Close()
 
 	err = cmd.Start()
 
@@ -459,10 +456,6 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 	stderrWriter = nil
 
 	if err != nil {
-		// These will not be used.
-		stdout.Close()
-		stderr.Close()
-
 		// If stop program does not exist, we send SIGTERM instead.
 		if errors.Is(err, os.ErrNotExist) {
 			logInfof("%s/run: sending SIGTERM to PID %d", name, runCmd.Process.Pid)
@@ -507,12 +500,16 @@ func runService(ctx context.Context, name, p string) error {
 		return err
 	}
 	cmd.Stdout = stdoutWriter
+	// Once the process finishes, we close the stdout reader. This stops logging redirect.
+	defer stdout.Close()
 	stderr, stderrWriter, err := os.Pipe()
 	if err != nil {
 		maybeSetExitCode(1)
 		return err
 	}
 	cmd.Stderr = stderrWriter
+	// Once the process finishes, we close the stderr reader. This stops logging redirect.
+	defer stderr.Close()
 
 	err = cmd.Start()
 
@@ -523,10 +520,6 @@ func runService(ctx context.Context, name, p string) error {
 	stderrWriter = nil
 
 	if err != nil {
-		// These will not be used.
-		stdout.Close()
-		stderr.Close()
-
 		// Start can fail when context is canceled, but we do not want to set
 		// the exit code because of the cancellation.
 		if !errors.Is(err, context.Canceled) {
