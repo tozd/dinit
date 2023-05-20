@@ -658,10 +658,24 @@ func getProcessCommandLine(pid int) (string, error) {
 	return string(bytes.ReplaceAll(cmdlineData, []byte("\x00"), []byte(" "))), nil
 }
 
+func getProcessInfo(pid int) (string, string, string, error) {
+	cmdline, err := getProcessCommandLine(pid)
+	if err != nil {
+		return "", "", "", err
+	}
+	name := "unknown"
+	if fields := strings.Fields(cmdline); len(fields) > 0 {
+		name = fields[0]
+	}
+	// We misuse pid as stage to differentiate between multiple reparented processes with same command line.
+	stage := strconv.Itoa(pid)
+	return cmdline, name, stage, nil
+}
+
 // We do not care about context cancellation. Even if the context is canceled we still
 // want to continue adopting reparented processes (and terminating them as soon as possible).
 func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
-	cmdline, err := getProcessCommandLine(pid)
+	cmdline, name, stage, err := getProcessInfo(pid)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			// Not a problem, process does not exist anymore, we do not have to do anything about it anymore.
@@ -672,12 +686,6 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
 		maybeSetExitCode(1)
 		return err
 	}
-	name := "unknown"
-	if fields := strings.Fields(cmdline); len(fields) > 0 {
-		name = fields[0]
-	}
-	// We misuse pid as stage to differentiate between multiple reparented processes with same command line.
-	stage := strconv.Itoa(pid)
 	jsonName, err := json.Marshal(name)
 	if err != nil {
 		maybeSetExitCode(1)
@@ -747,7 +755,7 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
 // We do not care about context cancellation. Even if the context is canceled we still
 // want to continue terminating reparented processes.
 func reparentingTerminate(_ context.Context, g *errgroup.Group, pid int) error {
-	cmdline, err := getProcessCommandLine(pid)
+	cmdline, name, stage, err := getProcessInfo(pid)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			// Not a problem, process does not exist anymore, we do not have to do anything about it anymore.
@@ -758,12 +766,6 @@ func reparentingTerminate(_ context.Context, g *errgroup.Group, pid int) error {
 		maybeSetExitCode(1)
 		return err
 	}
-	name := "unknown"
-	if fields := strings.Fields(cmdline); len(fields) > 0 {
-		name = fields[0]
-	}
-	// We misuse pid as stage to differentiate between multiple reparented processes with same command line.
-	stage := strconv.Itoa(pid)
 
 	logWarnf("terminating reparented child process with PID %d: %s", pid, cmdline)
 
