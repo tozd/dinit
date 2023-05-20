@@ -661,6 +661,8 @@ func getProcessCommandLine(pid int) (string, error) {
 func getProcessInfo(pid int) (string, string, string, error) {
 	cmdline, err := getProcessCommandLine(pid)
 	if err != nil {
+		// This is an utility function, so we do not call maybeSetExitCode(1) here
+		// but leave it to the caller to decide if and when to do so.
 		return "", "", "", err
 	}
 	name := "unknown"
