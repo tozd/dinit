@@ -230,7 +230,7 @@ func reapChildren() {
 
 func handleStopSignals() {
 	c := make(chan os.Signal, 3)
-	signal.Notify(c, unix.SIGTERM, unix.SIGINT, unix.SIGQUIT)
+	signal.Notify(c, unix.SIGTERM, unix.SIGINT)
 	for s := range c {
 		if mainContext.Err() != nil {
 			logInfof("got signal %d, already stopping children", s)
