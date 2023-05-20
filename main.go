@@ -510,6 +510,9 @@ func runService(ctx context.Context, name, p string) error {
 	cmd.Stdout = stdoutWriter
 	stderr, stderrWriter, err := os.Pipe()
 	if err != nil {
+		// This will not be used.
+		stdout.Close()
+
 		maybeSetExitCode(1)
 		return err
 	}
