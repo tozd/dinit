@@ -304,7 +304,9 @@ func runServices(ctx context.Context, g *errgroup.Group) error {
 	return nil
 }
 
-func redirectToLogWithPrefix(l *log.Logger, stage, name, input string, reader io.Reader) {
+func redirectToLogWithPrefix(l *log.Logger, stage, name, input string, reader io.ReadCloser) {
+	defer reader.Close()
+
 	scanner := bufio.NewScanner(reader)
 
 	res := true
@@ -323,15 +325,17 @@ func redirectToLogWithPrefix(l *log.Logger, stage, name, input string, reader io
 	}
 }
 
-func redirectStderrWithPrefix(stage, name string, reader io.Reader) {
+func redirectStderrWithPrefix(stage, name string, reader io.ReadCloser) {
 	redirectToLogWithPrefix(log.Default(), stage, name, "stderr", reader)
 }
 
-func redirectStdoutWithPrefix(stage, name string, reader io.Reader) {
+func redirectStdoutWithPrefix(stage, name string, reader io.ReadCloser) {
 	redirectToLogWithPrefix(stdOutLog, stage, name, "stdout", reader)
 }
 
-func redirectJSON(stage, name string, jsonName []byte, reader io.Reader) {
+func redirectJSON(stage, name string, jsonName []byte, reader io.ReadCloser) {
+	defer reader.Close()
+
 	scanner := bufio.NewScanner(reader)
 	timeBuffer := make([]byte, 30)
 
@@ -372,32 +376,17 @@ func redirectJSON(stage, name string, jsonName []byte, reader io.Reader) {
 }
 
 func cmdWait(ctx context.Context, cmd *exec.Cmd, stage, name string, jsonName []byte, stdout, stderr io.ReadCloser) error {
-	// We do not care about context because we want logging redirects
-	// to operate as long as processes have stdout and stderr open.
-	logGroup := errgroup.Group{}
-
-	logGroup.Go(func() error {
-		redirectStderrWithPrefix(stage, name, stderr)
-		return nil
-	})
-
+	// We do not care about context because we want logging redirects to operate
+	// as long as stdout and stderr are open. This could be longer than the direct
+	// child process is running because they could be further inherited (or duplicated)
+	// by other processes made by the direct child process. These goroutines close
+	// given stdout and stderr readers once they are done with them.
+	go redirectStderrWithPrefix(stage, name, stderr)
 	if os.Getenv("DINIT_JSON_STDOUT") == "0" {
-		logGroup.Go(func() error {
-			redirectStdoutWithPrefix(stage, name, stdout)
-			return nil
-		})
+		go redirectStdoutWithPrefix(stage, name, stdout)
 	} else {
-		logGroup.Go(func() error {
-			redirectJSON(stage, name, jsonName, stdout)
-			return nil
-		})
+		go redirectJSON(stage, name, jsonName, stdout)
 	}
-
-	// We do not return errors, so we ignore the error here.
-	// We have to first wait for reads from stdout and stderr pipes
-	// to complete before we can call cmd.Wait.
-	// TODO: Re-enable once it works. See: https://github.com/golang/go/issues/60309
-	// _ = logGroup.Wait()
 
 	var status syscall.WaitStatus
 	err := cmd.Wait()
@@ -444,18 +433,36 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 	r := path.Join(p, "stop")
 	cmd := exec.Command(r)
 	cmd.Dir = p
-	stdout, err := cmd.StdoutPipe()
+
+	// We do not use StdoutPipe and StderrPipe so that we can control when pipe is closed.
+	// See: https://github.com/golang/go/issues/60309
+	// See: https://go-review.googlesource.com/c/tools/+/484741
+	stdout, stdoutWriter, err := os.Pipe()
 	if err != nil {
 		maybeSetExitCode(1)
 		return err
 	}
-	stderr, err := cmd.StderrPipe()
+	cmd.Stdout = stdoutWriter
+	stderr, stderrWriter, err := os.Pipe()
 	if err != nil {
 		maybeSetExitCode(1)
 		return err
 	}
+	cmd.Stderr = stderrWriter
+
 	err = cmd.Start()
+
+	// The child process has inherited the pipe file, so close the copy held in this process.
+	stdoutWriter.Close()
+	stdoutWriter = nil
+	stderrWriter.Close()
+	stderrWriter = nil
+
 	if err != nil {
+		// These will not be used.
+		stdout.Close()
+		stderr.Close()
+
 		// If stop program does not exist, we send SIGTERM instead.
 		if errors.Is(err, os.ErrNotExist) {
 			logInfof("%s/run: sending SIGTERM to PID %d", name, runCmd.Process.Pid)
@@ -490,18 +497,36 @@ func runService(ctx context.Context, name, p string) error {
 	cmd.Cancel = func() error {
 		return stopService(cmd, name, jsonName, p)
 	}
-	stdout, err := cmd.StdoutPipe()
+
+	// We do not use StdoutPipe and StderrPipe so that we can control when pipe is closed.
+	// See: https://github.com/golang/go/issues/60309
+	// See: https://go-review.googlesource.com/c/tools/+/484741
+	stdout, stdoutWriter, err := os.Pipe()
 	if err != nil {
 		maybeSetExitCode(1)
 		return err
 	}
-	stderr, err := cmd.StderrPipe()
+	cmd.Stdout = stdoutWriter
+	stderr, stderrWriter, err := os.Pipe()
 	if err != nil {
 		maybeSetExitCode(1)
 		return err
 	}
+	cmd.Stderr = stderrWriter
+
 	err = cmd.Start()
+
+	// The child process has inherited the pipe file, so close the copy held in this process.
+	stdoutWriter.Close()
+	stdoutWriter = nil
+	stderrWriter.Close()
+	stderrWriter = nil
+
 	if err != nil {
+		// These will not be used.
+		stdout.Close()
+		stderr.Close()
+
 		// Start can fail when context is canceled, but we do not want to set
 		// the exit code because of the cancellation.
 		if !errors.Is(err, context.Canceled) {
