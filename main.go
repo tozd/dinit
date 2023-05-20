@@ -524,6 +524,7 @@ func runService(ctx context.Context, name, p string) error {
 	if err != nil {
 		// This will not be used.
 		stdout.Close()
+		stdoutWriter.Close()
 
 		maybeSetExitCode(1)
 		return err
