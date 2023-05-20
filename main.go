@@ -664,8 +664,14 @@ func getProcessInfo(pid int) (string, string, string, error) {
 		return "", "", "", err
 	}
 	name := "unknown"
+	// Take the first (space delimited) part of the cmdline.
 	if fields := strings.Fields(cmdline); len(fields) > 0 {
 		name = fields[0]
+		// If name contains /, take the last part.
+		splitName := strings.Split(name, "/")
+		if len(splitName) > 1 {
+			name = splitName[len(splitName)-1]
+		}
 	}
 	// We misuse pid as stage to differentiate between multiple reparented processes with same command line.
 	stage := strconv.Itoa(pid)
