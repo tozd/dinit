@@ -20,7 +20,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -76,10 +75,10 @@ func init() {
 }
 
 // TODO: Expire old entries.
-var reapedChildren = map[int]syscall.WaitStatus{}
+var reapedChildren = map[int]unix.WaitStatus{}
 var reapedChildrenMu sync.RWMutex
 
-func getReapedChildWaitStatus(pid int) (syscall.WaitStatus, bool) {
+func getReapedChildWaitStatus(pid int) (unix.WaitStatus, bool) {
 	reapedChildrenMu.RLock()
 	defer reapedChildrenMu.RUnlock()
 	status, ok := reapedChildren[pid]
@@ -134,7 +133,7 @@ func main() {
 	if pid := os.Getpid(); pid != 1 {
 		logInfof("not running as a PID 1, but PID %d, registering as a process subreaper", pid)
 		// We are not running as PID 1 so we register ourselves as a process subreaper.
-		_, _, err := syscall.RawSyscall(syscall.SYS_PRCTL, unix.PR_SET_CHILD_SUBREAPER, 1, 0)
+		_, _, err := unix.RawSyscall(unix.SYS_PRCTL, unix.PR_SET_CHILD_SUBREAPER, 1, 0)
 		if err != 0 {
 			logError(err)
 			os.Exit(1)
@@ -185,7 +184,7 @@ func handleSigChild() {
 	// We cannot just set SIGCHLD to SIG_IGN for kernel to reap zombies (and all children) for us,
 	// because we have to store wait statuses for our own children.
 	c := make(chan os.Signal)
-	signal.Notify(c, syscall.SIGCHLD)
+	signal.Notify(c, unix.SIGCHLD)
 	for range c {
 		reapChildren()
 	}
@@ -201,16 +200,16 @@ func reapChildren() {
 			reapedChildrenMu.Lock()
 			defer reapedChildrenMu.Unlock()
 
-			var status syscall.WaitStatus
+			var status unix.WaitStatus
 			var pid int
 			var err error
 			for {
-				pid, err = syscall.Wait4(-1, &status, syscall.WNOHANG, nil)
-				if err == nil || !errors.Is(err, syscall.EINTR) {
+				pid, err = unix.Wait4(-1, &status, unix.WNOHANG, nil)
+				if err == nil || !errors.Is(err, unix.EINTR) {
 					break
 				}
 			}
-			if errors.Is(err, syscall.ECHILD) {
+			if errors.Is(err, unix.ECHILD) {
 				// We do not have any unwaited-for children.
 				return true
 			}
@@ -234,7 +233,7 @@ func reapChildren() {
 
 func handleStopSignals() {
 	c := make(chan os.Signal, 3)
-	signal.Notify(c, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
+	signal.Notify(c, unix.SIGTERM, unix.SIGINT, unix.SIGQUIT)
 	for s := range c {
 		logInfof("got signal %d, stopping children", s)
 		// Even if children complain being terminated, we still exit with 0.
@@ -393,10 +392,10 @@ func doWait(ctx context.Context, pid int, wait func() (*os.ProcessState, error),
 		}
 	}
 
-	var status syscall.WaitStatus
+	var status unix.WaitStatus
 	state, err := wait()
 	if err != nil {
-		if errors.Is(err, syscall.ECHILD) {
+		if errors.Is(err, unix.ECHILD) {
 			s, ok := getReapedChildWaitStatus(pid)
 			if !ok {
 				maybeSetExitCode(1)
@@ -405,16 +404,16 @@ func doWait(ctx context.Context, pid int, wait func() (*os.ProcessState, error),
 			status = s
 		} else if errors.Is(err, context.Canceled) {
 			// If we are here, process finished successfully but the context has been canceled so err was set, so we just ignore the err.
-			status = state.Sys().(syscall.WaitStatus)
+			status = state.Sys().(unix.WaitStatus)
 		} else if state != nil && !state.Success() {
 			// This is a condition in Wait when err is set when process fails, so we just ignore the err.
-			status = state.Sys().(syscall.WaitStatus)
+			status = state.Sys().(unix.WaitStatus)
 		} else {
 			maybeSetExitCode(1)
 			return fmt.Errorf("%s/%s: error waiting for the process: %w", name, stage, err)
 		}
 	} else {
-		status = state.Sys().(syscall.WaitStatus)
+		status = state.Sys().(unix.WaitStatus)
 	}
 
 	if status.Exited() {
@@ -472,7 +471,7 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 		if errors.Is(err, os.ErrNotExist) {
 			logInfof("%s/run: sending SIGTERM to PID %d", name, runCmd.Process.Pid)
 
-			err := runCmd.Process.Signal(syscall.SIGTERM)
+			err := runCmd.Process.Signal(unix.SIGTERM)
 			if err != nil {
 				if errors.Is(err, os.ErrProcessDone) {
 					return nil
@@ -739,7 +738,7 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
 			logInfof("%s/%s: stopping", name, stage)
 			logInfof("%s/%s: sending SIGTERM to PID %d", name, stage, pid)
 
-			err := p.Signal(syscall.SIGTERM)
+			err := p.Signal(unix.SIGTERM)
 			if err != nil {
 				if errors.Is(err, os.ErrProcessDone) {
 					return nil
@@ -784,7 +783,7 @@ func reparentingTerminate(_ context.Context, g *errgroup.Group, pid int) error {
 	g.Go(func() error {
 		logInfof("%s/%s: sending SIGTERM to PID %d", name, stage, pid)
 
-		err := p.Signal(syscall.SIGTERM)
+		err := p.Signal(unix.SIGTERM)
 		if err != nil {
 			if errors.Is(err, os.ErrProcessDone) {
 				return nil
@@ -811,7 +810,7 @@ func reparentingTerminate(_ context.Context, g *errgroup.Group, pid int) error {
 
 		logInfof("%s/%s: sending SIGKILL to PID %d", name, stage, pid)
 
-		err = p.Signal(syscall.SIGKILL)
+		err = p.Signal(unix.SIGKILL)
 		if err != nil {
 			if errors.Is(err, os.ErrProcessDone) {
 				return nil
@@ -825,10 +824,10 @@ func reparentingTerminate(_ context.Context, g *errgroup.Group, pid int) error {
 
 	// By waiting we are also making sure that dinit does not exit before
 	// this reparented child process exits.
-	var status syscall.WaitStatus
+	var status unix.WaitStatus
 	state, err := p.Wait()
 	if err != nil {
-		if errors.Is(err, syscall.ECHILD) {
+		if errors.Is(err, unix.ECHILD) {
 			s, ok := getReapedChildWaitStatus(pid)
 			if !ok {
 				maybeSetExitCode(1)
@@ -840,7 +839,7 @@ func reparentingTerminate(_ context.Context, g *errgroup.Group, pid int) error {
 			return fmt.Errorf("%s/%s: error waiting for the process: %w", name, stage, err)
 		}
 	} else {
-		status = state.Sys().(syscall.WaitStatus)
+		status = state.Sys().(unix.WaitStatus)
 	}
 
 	if status.Exited() {
