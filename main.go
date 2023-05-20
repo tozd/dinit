@@ -603,6 +603,8 @@ func removeProcessedPid(pid int) {
 	delete(processedPids, pid)
 }
 
+// We do not care about context cancellation. Even if the context is canceled we still
+// want to continue processing reparented processes (and terminating them as soon as possible).
 func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) error {
 	// Processes get reparented to the main thread which has task ID matching PID.
 	childrenPath := fmt.Sprintf("/proc/%d/task/%d/children", os.Getpid(), os.Getpid())
@@ -642,8 +644,6 @@ func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) erro
 				}
 			}
 			unknownPids = newUnknownPids
-		case <-ctx.Done():
-			return ctx.Err()
 		}
 	}
 }
