@@ -471,6 +471,7 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 		// If stop program does not exist, we send SIGTERM instead.
 		if errors.Is(err, os.ErrNotExist) {
 			logInfof("%s/run: sending SIGTERM to PID %d", name, runCmd.Process.Pid)
+
 			err := runCmd.Process.Signal(syscall.SIGTERM)
 			if err != nil {
 				if errors.Is(err, os.ErrProcessDone) {
@@ -717,6 +718,7 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
 		select {
 		case <-ctx.Done():
 			logInfof("%s/%s: sending SIGTERM to PID %d", name, stage, pid)
+
 			err := p.Signal(syscall.SIGTERM)
 			if err != nil {
 				if errors.Is(err, os.ErrProcessDone) {
@@ -725,6 +727,7 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
 				maybeSetExitCode(1)
 				return err
 			}
+
 			return ctx.Err()
 		case <-done:
 			// The process finished or there was an error waiting for it.
@@ -765,6 +768,7 @@ func reparentingTerminate(_ context.Context, g *errgroup.Group, pid int) error {
 
 	g.Go(func() error {
 		logInfof("%s/%s: sending SIGTERM to PID %d", name, stage, pid)
+
 		err := p.Signal(syscall.SIGTERM)
 		if err != nil {
 			if errors.Is(err, os.ErrProcessDone) {
@@ -791,6 +795,7 @@ func reparentingTerminate(_ context.Context, g *errgroup.Group, pid int) error {
 		}
 
 		logInfof("%s/%s: sending SIGKILL to PID %d", name, stage, pid)
+
 		err = p.Signal(syscall.SIGKILL)
 		if err != nil {
 			if errors.Is(err, os.ErrProcessDone) {
