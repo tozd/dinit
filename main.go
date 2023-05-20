@@ -376,24 +376,28 @@ func redirectJSON(stage, name string, jsonName []byte, reader io.ReadCloser) {
 	}
 }
 
-func cmdWait(ctx context.Context, cmd *exec.Cmd, stage, name string, jsonName []byte, stdout, stderr io.ReadCloser) error {
+func doWait(ctx context.Context, pid int, wait func() (*os.ProcessState, error), stage, name string, jsonName []byte, stdout, stderr io.ReadCloser) error {
 	// We do not care about context because we want logging redirects to operate
 	// as long as stdout and stderr are open. This could be longer than the process
 	// is running because they could be further inherited (or duplicated)
 	// by other processes made by the first process. These goroutines close
 	// given stdout and stderr readers once they are done with them.
-	go redirectStderrWithPrefix(stage, name, stderr)
-	if os.Getenv("DINIT_JSON_STDOUT") == "0" {
-		go redirectStdoutWithPrefix(stage, name, stdout)
-	} else {
-		go redirectJSON(stage, name, jsonName, stdout)
+	if stderr != nil {
+		go redirectStderrWithPrefix(stage, name, stderr)
+	}
+	if stdout != nil {
+		if os.Getenv("DINIT_JSON_STDOUT") == "0" {
+			go redirectStdoutWithPrefix(stage, name, stdout)
+		} else {
+			go redirectJSON(stage, name, jsonName, stdout)
+		}
 	}
 
 	var status syscall.WaitStatus
-	err := cmd.Wait()
+	state, err := wait()
 	if err != nil {
 		if errors.Is(err, syscall.ECHILD) {
-			s, ok := getReapedChildWaitStatus(cmd.Process.Pid)
+			s, ok := getReapedChildWaitStatus(pid)
 			if !ok {
 				maybeSetExitCode(1)
 				return fmt.Errorf("%s/%s: could not determine wait status", name, stage)
@@ -401,29 +405,29 @@ func cmdWait(ctx context.Context, cmd *exec.Cmd, stage, name string, jsonName []
 			status = s
 		} else if errors.Is(err, context.Canceled) {
 			// If we are here, process finished successfully but the context has been canceled so err was set, so we just ignore the err.
-			status = cmd.ProcessState.Sys().(syscall.WaitStatus)
-		} else if cmd.ProcessState != nil && !cmd.ProcessState.Success() {
+			status = state.Sys().(syscall.WaitStatus)
+		} else if state != nil && !state.Success() {
 			// This is a condition in Wait when err is set when process fails, so we just ignore the err.
-			status = cmd.ProcessState.Sys().(syscall.WaitStatus)
+			status = state.Sys().(syscall.WaitStatus)
 		} else {
 			maybeSetExitCode(1)
 			return fmt.Errorf("%s/%s: error waiting for the process: %w", name, stage, err)
 		}
 	} else {
-		status = cmd.ProcessState.Sys().(syscall.WaitStatus)
+		status = state.Sys().(syscall.WaitStatus)
 	}
 
 	if status.Exited() {
 		if status.ExitStatus() != 0 {
 			maybeSetExitCode(2)
 		}
-		logInfof("%s/%s: PID %d finished with status %d", name, stage, cmd.Process.Pid, status.ExitStatus())
+		logInfof("%s/%s: PID %d finished with status %d", name, stage, pid, status.ExitStatus())
 	} else {
 		// If process finished because of the signal but we have not been stopping it, we see it is as a process error.
 		if ctx == nil || ctx.Err() == nil {
 			maybeSetExitCode(2)
 		}
-		logInfof("%s/%s: PID %d finished with signal %d", name, stage, cmd.Process.Pid, status.Signal())
+		logInfof("%s/%s: PID %d finished with signal %d", name, stage, pid, status.Signal())
 	}
 
 	return nil
@@ -482,7 +486,10 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 
 	logInfof("%s/stop: running with PID %d", name, cmd.Process.Pid)
 
-	return cmdWait(nil, cmd, "stop", name, jsonName, stdout, stderr)
+	return doWait(nil, cmd.Process.Pid, func() (*os.ProcessState, error) {
+		err := cmd.Wait()
+		return cmd.ProcessState, err
+	}, "stop", name, jsonName, stdout, stderr)
 }
 
 func runService(ctx context.Context, name, p string) error {
@@ -546,7 +553,10 @@ func runService(ctx context.Context, name, p string) error {
 
 	logInfof("%s/run: running with PID %d", name, cmd.Process.Pid)
 
-	return cmdWait(ctx, cmd, "run", name, jsonName, stdout, stderr)
+	return doWait(ctx, cmd.Process.Pid, func() (*os.ProcessState, error) {
+		err := cmd.Wait()
+		return cmd.ProcessState, err
+	}, "run", name, jsonName, stdout, stderr)
 }
 
 var processedPids = map[int]bool{}
@@ -641,6 +651,8 @@ func getProcessCommandLine(pid int) (string, error) {
 	return string(bytes.ReplaceAll(cmdlineData, []byte("\x00"), []byte(" "))), nil
 }
 
+// We do not care about context cancellation. Even if the context is canceled we still
+// want to continue adopting reparented processes (and terminating them as soon as possible).
 func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
 	cmdline, err := getProcessCommandLine(pid)
 	if err != nil {
@@ -653,12 +665,77 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
 		maybeSetExitCode(1)
 		return err
 	}
+	name := "unknown"
+	if fields := strings.Fields(cmdline); len(fields) > 0 {
+		name = fields[0]
+	}
+	stage := strconv.Itoa(pid)
+	jsonName, err := json.Marshal(name)
+	if err != nil {
+		maybeSetExitCode(1)
+		return err
+	}
+
 	logWarnf("adopting reparented child process with PID %d: %s", pid, cmdline)
 
-	return nil
+	setRunningChildPid(pid)
+	defer removeRunningChildPid(pid)
+	// When the process stops (which is when this function returns)
+	// we stop all other services and exit ourselves.
+	defer mainCancel()
+
+	stdoutPath := fmt.Sprintf("/proc/%d/fd/1", pid)
+	stdout, err := os.Open(stdoutPath)
+	// The process might not have stdout open or the process itself might not exist, not a problem in any case.
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			maybeSetExitCode(1)
+			return err
+		}
+	}
+
+	stderrPath := fmt.Sprintf("/proc/%d/fd/2", pid)
+	stderr, err := os.Open(stderrPath)
+	// The process might not have stderr open or the process itself might not exist, not a problem in any case.
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			maybeSetExitCode(1)
+			return err
+		}
+	}
+
+	p, _ := os.FindProcess(pid) // This call cannot fail.
+	done := make(chan struct{})
+	defer close(done)
+
+	// We cancel the process if context is canceled.
+	g.Go(func() error {
+		select {
+		case <-ctx.Done():
+			logInfof("%s/%s: sending SIGTERM to PID %d", name, stage, pid)
+			err := p.Signal(syscall.SIGTERM)
+			if err != nil {
+				if errors.Is(err, os.ErrProcessDone) {
+					return nil
+				}
+				maybeSetExitCode(1)
+				return err
+			}
+			return ctx.Err()
+		case <-done:
+			// The process finished or there was an error waiting for it.
+			// In any case we do not have anything to do anymore.
+			return nil
+		}
+
+	})
+
+	return doWait(ctx, pid, p.Wait, stage, name, jsonName, stdout, stderr)
 }
 
-func reparentingTerminate(ctx context.Context, g *errgroup.Group, pid int) error {
+// We do not care about context cancellation. Even if the context is canceled we still
+// want to continue terminating reparented processes.
+func reparentingTerminate(_ context.Context, g *errgroup.Group, pid int) error {
 	cmdline, err := getProcessCommandLine(pid)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -697,9 +774,9 @@ func reparentingTerminate(ctx context.Context, g *errgroup.Group, pid int) error
 		timer := time.NewTimer(reparentingKillTimeout)
 		defer timer.Stop()
 
-		// We do not care about ctx cancellation. Even if ctx is canceled we still want to
-		// give full reparentingKillTimeout to the process before killing it. If that is
-		// longer than what Docker container has as a whole, everything will be killed anyway.
+		// We do not care about context cancellation. Even if the context is canceled we still
+		// want to give full reparentingKillTimeout to the process before killing it. If that
+		// is longer than what Docker container has as a whole, everything will be killed anyway.
 		select {
 		case <-timer.C:
 			// We waited enough after SIGTERM, we continue after the select.
