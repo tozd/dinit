@@ -236,10 +236,14 @@ func handleStopSignals() {
 	c := make(chan os.Signal, 3)
 	signal.Notify(c, unix.SIGTERM, unix.SIGINT, unix.SIGQUIT)
 	for s := range c {
-		logInfof("got signal %d, stopping children", s)
-		// Even if children complain being terminated, we still exit with 0.
-		maybeSetExitCode(0)
-		mainCancel()
+		if mainContext.Err() != nil {
+			logInfof("got signal %d, already stopping children", s)
+		} else {
+			logInfof("got signal %d, stopping children", s)
+			// Even if children complain being terminated, we still exit with 0.
+			maybeSetExitCode(0)
+			mainCancel()
+		}
 	}
 }
 
