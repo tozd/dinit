@@ -434,7 +434,7 @@ func doWait(ctx context.Context, pid int, wait func() (*os.ProcessState, error),
 }
 
 func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error {
-	logInfof("%s: stopping", name)
+	logInfof("%s/run: stopping", name)
 	r := path.Join(p, "stop")
 	cmd := exec.Command(r)
 	cmd.Dir = p
@@ -498,7 +498,7 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 }
 
 func runService(ctx context.Context, name, p string) error {
-	logInfof("%s: starting", name)
+	logInfof("%s/run: starting", name)
 	jsonName, err := json.Marshal(name)
 	if err != nil {
 		maybeSetExitCode(1)
@@ -717,6 +717,7 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
 	g.Go(func() error {
 		select {
 		case <-ctx.Done():
+			logInfof("%s/%s: stopping", name, stage)
 			logInfof("%s/%s: sending SIGTERM to PID %d", name, stage, pid)
 
 			err := p.Signal(syscall.SIGTERM)
