@@ -1,3 +1,7 @@
+// We call maybeSetExitCode(1) early on an error and do not leave for error to
+// first propagate and then set it, so that during cleanup while the error is
+// propagating we do not set some other exit code first.
+
 package main
 
 import (
@@ -435,9 +439,6 @@ func cmdWait(ctx context.Context, cmd *exec.Cmd, stage, name string, jsonName []
 	return nil
 }
 
-// We call maybeSetExitCode(1) early on an error and do not leave for error to
-// first propagate and then set it, so that during cleanup while the error is
-// propagating we do not set some other exit code first.
 func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error {
 	logInfof("%s: stopping", name)
 	r := path.Join(p, "stop")
@@ -476,9 +477,6 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 	return cmdWait(nil, cmd, "stop", name, jsonName, stdout, stderr)
 }
 
-// We call maybeSetExitCode(1) early on an error and do not leave for error to
-// first propagate and then set it, so that during cleanup while the error is
-// propagating we do not set some other exit code first.
 func runService(ctx context.Context, name, p string) error {
 	logInfof("%s: starting", name)
 	jsonName, err := json.Marshal(name)
