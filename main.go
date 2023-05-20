@@ -651,6 +651,8 @@ func getProcessCommandLine(pid int) (string, error) {
 	cmdlinePath := fmt.Sprintf("/proc/%d/cmdline", pid)
 	cmdlineData, err := os.ReadFile(cmdlinePath)
 	if err != nil {
+		// This is an utility function, so we do not call maybeSetExitCode(1) here
+		// but leave it to the caller to decide if and when to do so.
 		return "", err
 	}
 	return string(bytes.ReplaceAll(cmdlineData, []byte("\x00"), []byte(" "))), nil
