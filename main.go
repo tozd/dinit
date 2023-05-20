@@ -148,13 +148,9 @@ func main() {
 
 	switch policy := os.Getenv("DINIT_REPARENTING_POLICY"); policy {
 	case "adopt":
-		g.Go(func() error {
-			return reparenting(ctx, g, reparentingAdopt)
-		})
+		go reparenting(ctx, g, reparentingAdopt)
 	case "terminate", "": // Default reparenting policy.
-		g.Go(func() error {
-			return reparenting(ctx, g, reparentingTerminate)
-		})
+		go reparenting(ctx, g, reparentingTerminate)
 	case "ignore":
 	default:
 		logErrorf("invalid reparenting policy %s", policy)
@@ -609,7 +605,7 @@ func removeProcessedPid(pid int) {
 
 // We do not care about context cancellation. Even if the context is canceled we still
 // want to continue processing reparented processes (and terminating them as soon as possible).
-func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) error {
+func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) {
 	// Processes get reparented to the main thread which has task ID matching PID.
 	childrenPath := fmt.Sprintf("/proc/%d/task/%d/children", os.Getpid(), os.Getpid())
 	unknownPids := map[int]bool{}
@@ -625,16 +621,16 @@ func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) erro
 			}
 			childrenData, err := os.ReadFile(childrenPath)
 			if err != nil {
-				maybeSetExitCode(1)
-				return fmt.Errorf("unable to read process children from %s: %w", childrenPath, err)
+				logWarnf("unable to read process children from %s: %w", childrenPath, err)
+				continue
 			}
 			childrenPids := strings.Fields(string(childrenData))
 			newUnknownPids := map[int]bool{}
 			for _, childPid := range childrenPids {
 				p, err := strconv.Atoi(childPid)
 				if err != nil {
-					maybeSetExitCode(1)
-					return fmt.Errorf("failed to parse PID %s: %w", childPid, err)
+					logWarnf("failed to parse PID %s: %w", childPid, err)
+					continue
 				}
 				if hasRunningChildPid(p) {
 					// This is our own child.
