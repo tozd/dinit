@@ -676,6 +676,7 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
 	if fields := strings.Fields(cmdline); len(fields) > 0 {
 		name = fields[0]
 	}
+	// We misuse pid as stage to differentiate between multiple reparented processes with same command line.
 	stage := strconv.Itoa(pid)
 	jsonName, err := json.Marshal(name)
 	if err != nil {
@@ -761,6 +762,7 @@ func reparentingTerminate(_ context.Context, g *errgroup.Group, pid int) error {
 	if fields := strings.Fields(cmdline); len(fields) > 0 {
 		name = fields[0]
 	}
+	// We misuse pid as stage to differentiate between multiple reparented processes with same command line.
 	stage := strconv.Itoa(pid)
 
 	logWarnf("terminating reparented child process with PID %d: %s", pid, cmdline)
