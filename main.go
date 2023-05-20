@@ -134,9 +134,9 @@ func main() {
 	if pid := os.Getpid(); pid != 1 {
 		logInfof("not running as a PID 1, but PID %d, registering as a process subreaper", pid)
 		// We are not running as PID 1 so we register ourselves as a process subreaper.
-		_, _, err := unix.RawSyscall(unix.SYS_PRCTL, unix.PR_SET_CHILD_SUBREAPER, 1, 0)
-		if err != 0 {
-			logError(err)
+		_, _, errno := unix.RawSyscall(unix.SYS_PRCTL, unix.PR_SET_CHILD_SUBREAPER, 1, 0)
+		if errno != 0 {
+			logError(errno)
 			os.Exit(1)
 		}
 	}
