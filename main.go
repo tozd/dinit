@@ -378,9 +378,9 @@ func redirectJSON(stage, name string, jsonName []byte, reader io.ReadCloser) {
 
 func cmdWait(ctx context.Context, cmd *exec.Cmd, stage, name string, jsonName []byte, stdout, stderr io.ReadCloser) error {
 	// We do not care about context because we want logging redirects to operate
-	// as long as stdout and stderr are open. This could be longer than the direct
-	// child process is running because they could be further inherited (or duplicated)
-	// by other processes made by the direct child process. These goroutines close
+	// as long as stdout and stderr are open. This could be longer than the process
+	// is running because they could be further inherited (or duplicated)
+	// by other processes made by the first process. These goroutines close
 	// given stdout and stderr readers once they are done with them.
 	go redirectStderrWithPrefix(stage, name, stderr)
 	if os.Getenv("DINIT_JSON_STDOUT") == "0" {
