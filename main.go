@@ -472,11 +472,15 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 		if errors.Is(err, os.ErrNotExist) {
 			logInfof("%s/run: sending SIGTERM to PID %d", name, runCmd.Process.Pid)
 			err := runCmd.Process.Signal(syscall.SIGTERM)
-			if errors.Is(err, os.ErrProcessDone) {
-				return nil
+			if err != nil {
+				if errors.Is(err, os.ErrProcessDone) {
+					return nil
+				}
+				maybeSetExitCode(1)
+				return err
 			}
-			maybeSetExitCode(1)
-			return err
+
+			return nil
 		}
 		maybeSetExitCode(1)
 		return err
