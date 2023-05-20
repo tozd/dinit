@@ -32,8 +32,9 @@ const etcService = "/etc/service"
 // If a process stays unknown for 2 intervals, reparenting policy is triggered for it.
 // By default docker stop waits for 10 seconds before it kills processes if container
 // does not exit, so we want to detect any reparenting which might happen during shutdown
-// and have time to send those processes SIGTERM as well.
-const reparentingInterval = 3 * time.Second
+// and have time to send those processes SIGTERM as well. This can happen multiple times
+// if terminating the first wave of reparented processes trigger another wave.
+const reparentingInterval = time.Second
 
 // How long to wait after SIGTERM to send SIGKILL to a reparented process?
 const reparentingKillTimeout = 30 * time.Second
