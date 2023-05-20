@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -75,10 +76,10 @@ func init() {
 }
 
 // TODO: Expire old entries.
-var reapedChildren = map[int]unix.WaitStatus{}
+var reapedChildren = map[int]syscall.WaitStatus{}
 var reapedChildrenMu sync.RWMutex
 
-func getReapedChildWaitStatus(pid int) (unix.WaitStatus, bool) {
+func getReapedChildWaitStatus(pid int) (syscall.WaitStatus, bool) {
 	reapedChildrenMu.RLock()
 	defer reapedChildrenMu.RUnlock()
 	status, ok := reapedChildren[pid]
@@ -222,7 +223,7 @@ func reapChildren() {
 			} else {
 				logInfof("reaped process with PID %d and signal %d", pid, status.Signal())
 			}
-			reapedChildren[pid] = status
+			reapedChildren[pid] = syscall.WaitStatus(status)
 			return false
 		}()
 		if stop {
@@ -392,7 +393,7 @@ func doWait(ctx context.Context, pid int, wait func() (*os.ProcessState, error),
 		}
 	}
 
-	var status unix.WaitStatus
+	var status syscall.WaitStatus
 	state, err := wait()
 	if err != nil {
 		if errors.Is(err, unix.ECHILD) {
@@ -404,16 +405,16 @@ func doWait(ctx context.Context, pid int, wait func() (*os.ProcessState, error),
 			status = s
 		} else if errors.Is(err, context.Canceled) {
 			// If we are here, process finished successfully but the context has been canceled so err was set, so we just ignore the err.
-			status = state.Sys().(unix.WaitStatus)
+			status = state.Sys().(syscall.WaitStatus)
 		} else if state != nil && !state.Success() {
 			// This is a condition in Wait when err is set when process fails, so we just ignore the err.
-			status = state.Sys().(unix.WaitStatus)
+			status = state.Sys().(syscall.WaitStatus)
 		} else {
 			maybeSetExitCode(1)
 			return fmt.Errorf("%s/%s: error waiting for the process: %w", name, stage, err)
 		}
 	} else {
-		status = state.Sys().(unix.WaitStatus)
+		status = state.Sys().(syscall.WaitStatus)
 	}
 
 	if status.Exited() {
@@ -824,7 +825,7 @@ func reparentingTerminate(_ context.Context, g *errgroup.Group, pid int) error {
 
 	// By waiting we are also making sure that dinit does not exit before
 	// this reparented child process exits.
-	var status unix.WaitStatus
+	var status syscall.WaitStatus
 	state, err := p.Wait()
 	if err != nil {
 		if errors.Is(err, unix.ECHILD) {
@@ -839,7 +840,7 @@ func reparentingTerminate(_ context.Context, g *errgroup.Group, pid int) error {
 			return fmt.Errorf("%s/%s: error waiting for the process: %w", name, stage, err)
 		}
 	} else {
-		status = state.Sys().(unix.WaitStatus)
+		status = state.Sys().(syscall.WaitStatus)
 	}
 
 	if status.Exited() {
