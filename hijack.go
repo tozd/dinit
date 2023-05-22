@@ -16,8 +16,8 @@ var errorReturn = -1
 var syscallInstruction = [...]byte{0x0F, 0x05}
 
 type PtraceTracee struct {
-	Pid        int
-	attached   bool
+	Pid      int
+	attached bool
 }
 
 func (t *PtraceTracee) Attach() error {
