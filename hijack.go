@@ -54,23 +54,76 @@ func (t *PtraceTracee) allocateMemory() error {
 
 }
 
-func (t *PtraceTracee) syscall6(trap, a1, a2, a3, a4, a5, a6 uintptr) (r1, r2 uintptr, err error) {
+func (t *PtraceTracee) syscall(call int, args ...any) (result uint64, err error) {
+	if len(args) > 6 {
+		panic(fmt.Errorf("too many arguments (%d) for a syscall", len(args)))
+	}
+
 	var originalRegs unix.PtraceRegs
 	err = unix.PtraceGetRegs(t.Pid, &originalRegs)
 	if err != nil {
-		return 0, 0, err
+		return 0, err
 	}
+
+	instructionPointer := originalRegs.Rip
+	payload := []byte{}
+
+	arguments := [6]uint64{}
+	for i, arg := range args {
+		switch a := arg.(type) {
+		case []byte:
+			payload = append(payload, a...)
+			arguments[i] = instructionPointer
+			instructionPointer += uint64(len(a))
+		case string:
+			payload = append(payload, a...)
+			// Append null character.
+			payload = append(payload, 0)
+			arguments[i] = instructionPointer
+			instructionPointer += uint64(len(a)) + 1
+		case uint8:
+			arguments[i] = uint64(a)
+		case uint16:
+			arguments[i] = uint64(a)
+		case uint32:
+			arguments[i] = uint64(a)
+		case uint64:
+			arguments[i] = uint64(a)
+		case int8:
+			arguments[i] = uint64(a)
+		case int16:
+			arguments[i] = uint64(a)
+		case int32:
+			arguments[i] = uint64(a)
+		case int64:
+			arguments[i] = uint64(a)
+		case int:
+			arguments[i] = uint64(a)
+		case uint:
+			arguments[i] = uint64(a)
+		case uintptr:
+			arguments[i] = uint64(a)
+		default:
+			panic(fmt.Errorf("invalid syscall argument %d: %T", i, a))
+		}
+	}
+
+	// We do not change instructionPointer here, because it already
+	// points to the beginning of appended instructions.
+	payload = append(payload, syscallInstruction[:]...)
+
+	// TODO: What if payload is so large that it hits the end of the data section?
+	originalInstructions, err := t.readData(uintptr(originalRegs.Rip), len(payload))
+	if err != nil {
+		return 0, err
+	}
+
 	defer func() {
 		err2 := unix.PtraceSetRegs(t.Pid, &originalRegs)
 		if err == nil {
 			err = err2
 		}
 	}()
-
-	originalInstructions, err := t.readData(uintptr(originalRegs.Rip), len(syscallInstruction))
-	if err != nil {
-		return 0, 0, err
-	}
 	defer func() {
 		err2 := t.writeData(uintptr(originalRegs.Rip), originalInstructions)
 		if err == nil {
@@ -78,41 +131,42 @@ func (t *PtraceTracee) syscall6(trap, a1, a2, a3, a4, a5, a6 uintptr) (r1, r2 ui
 		}
 	}()
 
-	err = t.writeData(uintptr(originalRegs.Rip), syscallInstruction[:])
+	err = t.writeData(uintptr(originalRegs.Rip), payload)
 	if err != nil {
-		return 0, 0, err
+		return 0, err
 	}
 
 	newRegs := originalRegs
-	newRegs.Rax = uint64(trap)
-	newRegs.Rdi = uint64(a1)
-	newRegs.Rsi = uint64(a2)
-	newRegs.Rdx = uint64(a3)
-	newRegs.R10 = uint64(a4)
-	newRegs.R8 = uint64(a5)
-	newRegs.R9 = uint64(a6)
+	newRegs.Rip = instructionPointer
+	newRegs.Rax = uint64(call)
+	newRegs.Rdi = arguments[0]
+	newRegs.Rsi = arguments[1]
+	newRegs.Rdx = arguments[2]
+	newRegs.R10 = arguments[3]
+	newRegs.R8 = arguments[4]
+	newRegs.R9 = arguments[5]
 
 	err = unix.PtraceSetRegs(t.Pid, &newRegs)
 	if err == nil {
-		return 0, 0, err
+		return 0, err
 	}
 
 	err = t.singleStep()
 	if err == nil {
-		return 0, 0, err
+		return 0, err
 	}
 
 	var resultRegs unix.PtraceRegs
 	err = unix.PtraceGetRegs(t.Pid, &resultRegs)
 	if err != nil {
-		return 0, 0, err
+		return 0, err
 	}
 
 	if resultRegs.Rax > maxErrno {
-		return uintptr(errorReturn), 0, syscall.Errno(-resultRegs.Rax)
+		return uint64(errorReturn), syscall.Errno(-resultRegs.Rax)
 	}
 
-	return uintptr(resultRegs.Rax), uintptr(resultRegs.Rdx), nil
+	return resultRegs.Rax, nil
 }
 
 func (t *PtraceTracee) readData(address uintptr, length int) ([]byte, error) {
