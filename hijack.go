@@ -56,15 +56,7 @@ func (t *PtraceTracee) Detach() error {
 	return nil
 }
 
-func (t *PtraceTracee) OpenSocket() error {
-
-}
-
-func (t *PtraceTracee) CloseSocket() error {
-
-}
-
-func (t *PtraceTracee) HijackFd(hostFd uintptr, traceeFd uintptr) error {
+func (t *PtraceTracee) Dup2(hostFd int, traceeFd int) error {
 
 }
 
@@ -276,22 +268,11 @@ func hijackStdoutStderr(pid int) (stdout *os.File, stderr *os.File, err error) {
 		}
 	}()
 
-	err = t.OpenSocket()
+	err = t.Dup2(int(stdoutWriter.Fd()), 1)
 	if err != nil {
 		return nil, nil, err
 	}
-	defer func() {
-		err2 := t.CloseSocket()
-		if err == nil {
-			err = err2
-		}
-	}()
-
-	err = t.HijackFd(stdout.Fd(), 1)
-	if err != nil {
-		return nil, nil, err
-	}
-	err = t.HijackFd(stderr.Fd(), 2)
+	err = t.Dup2(int(stderrWriter.Fd()), 2)
 	if err != nil {
 		return nil, nil, err
 	}
