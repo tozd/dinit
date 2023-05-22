@@ -376,7 +376,7 @@ func redirectJSON(stage, name string, jsonName []byte, reader io.ReadCloser) {
 	}
 }
 
-func doWait(ctx context.Context, pid int, wait func() (*os.ProcessState, error), stage, name string, jsonName []byte, stdout, stderr io.ReadCloser) error {
+func doWait(ctx context.Context, pid int, wait func() (*os.ProcessState, error), stage, name string, jsonName []byte, stdout, stderr *os.File) error {
 	// We do not care about context because we want logging redirects to operate
 	// as long as stdout and stderr are open. This could be longer than the process
 	// is running because they could be further inherited (or duplicated)
