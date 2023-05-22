@@ -36,6 +36,12 @@ func (t *PtraceTracee) Attach() error {
 		return err
 	}
 
+	err = t.waitTrap(unix.PTRACE_EVENT_STOP)
+	if err != nil {
+		unix.PtraceDetach(t.Pid)
+		return err
+	}
+
 	t.attached = true
 
 	return nil
@@ -204,10 +210,11 @@ func (t *PtraceTracee) singleStep() error {
 		return err
 	}
 
-	return t.waitTrap()
+	// 0 trap cause means a breakpoint or single stepping.
+	return t.waitTrap(0)
 }
 
-func (t *PtraceTracee) waitTrap() error {
+func (t *PtraceTracee) waitTrap(cause int) error {
 	var status unix.WaitStatus
 	var err error
 	for {
@@ -216,9 +223,8 @@ func (t *PtraceTracee) waitTrap() error {
 			break
 		}
 	}
-	// 0 trap cause means a breakpoint or single stepping.
-	if status.TrapCause() != 0 {
-		return fmt.Errorf("unexpected wait status after wait, exit status %d, signal %d, stop signal %d, trap cause %d", status.ExitStatus(), status.Signal(), status.StopSignal(), status.TrapCause())
+	if status.TrapCause() != cause {
+		return fmt.Errorf("unexpected wait status after wait, exit status %d, signal %d, stop signal %d, trap cause %d, expected %d", status.ExitStatus(), status.Signal(), status.StopSignal(), status.TrapCause(), cause)
 	}
 	return nil
 }
