@@ -709,24 +709,9 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
 	// we stop all other services and exit ourselves.
 	defer mainCancel()
 
-	stdoutPath := fmt.Sprintf("/proc/%d/fd/1", pid)
-	stdout, err := os.Open(stdoutPath)
-	// The process might not have stdout open or the process itself might not exist, not a problem in any case.
+	stdout, stderr, err := hijackStdoutStderr(pid)
 	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			maybeSetExitCode(1)
-			return err
-		}
-	}
-
-	stderrPath := fmt.Sprintf("/proc/%d/fd/2", pid)
-	stderr, err := os.Open(stderrPath)
-	// The process might not have stderr open or the process itself might not exist, not a problem in any case.
-	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			maybeSetExitCode(1)
-			return err
-		}
+		logWarnf("%s/%s: error hijacking stdout and stderr: %s", name, stage, err)
 	}
 
 	p, _ := os.FindProcess(pid) // This call cannot fail.
@@ -755,7 +740,6 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
 			// In any case we do not have anything to do anymore.
 			return nil
 		}
-
 	})
 
 	return doWait(ctx, pid, p.Wait, stage, name, jsonName, stdout, stderr)
