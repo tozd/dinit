@@ -16,10 +16,15 @@ var errorReturn = -1
 var syscallInstruction = [...]byte{0x0F, 0x05}
 
 type PtraceTracee struct {
-	Pid int
+	Pid        int
+	attached   bool
 }
 
 func (t *PtraceTracee) Attach() error {
+	if t.attached {
+		return fmt.Errorf("tracee already attached")
+	}
+
 	err := unix.PtraceSeize(t.Pid)
 	if err != nil {
 		return err
@@ -31,11 +36,24 @@ func (t *PtraceTracee) Attach() error {
 		return err
 	}
 
+	t.attached = true
+
 	return nil
 }
 
 func (t *PtraceTracee) Detach() error {
-	return unix.PtraceDetach(t.Pid)
+	if !t.attached {
+		return fmt.Errorf("tracee not attached")
+	}
+
+	err := unix.PtraceDetach(t.Pid)
+	if err != nil {
+		return err
+	}
+
+	t.attached = false
+
+	return nil
 }
 
 func (t *PtraceTracee) OpenSocket() error {
@@ -47,10 +65,6 @@ func (t *PtraceTracee) CloseSocket() error {
 }
 
 func (t *PtraceTracee) HijackFd(hostFd uintptr, traceeFd uintptr) error {
-
-}
-
-func (t *PtraceTracee) allocateMemory() error {
 
 }
 
