@@ -229,7 +229,7 @@ func (t *PtraceTracee) waitTrap(cause int) error {
 	return nil
 }
 
-func hijackStdoutStderr(pid int) (stdout *os.File, stderr *os.File, err error) {
+func hijackStdoutStderr(pid int) (stdout, stderr *os.File, err error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
