@@ -2,6 +2,9 @@
 // first propagate and then set it, so that during cleanup while the error is
 // propagating we do not set some other exit code first.
 
+// We cannot use kcmp to compare file descriptors.
+// See: https://github.com/moby/moby/issues/45621
+
 // We cannot use pidfd_getfd to move file descriptors between processes.
 // See: https://github.com/moby/moby/issues/45622
 

@@ -9,6 +9,8 @@ import (
 	"net"
 	"os"
 	"runtime"
+	"strconv"
+	"strings"
 	"unsafe"
 
 	"github.com/google/uuid"
@@ -191,24 +193,25 @@ func (t *PtraceTracee) Detach() error {
 	return nil
 }
 
-// GetFd does a cross-process duplication of a file descriptor from tracee into this process.
-// It uses an abstract unix domain socket to get traceeFd from the tracee. You should close
-// traceeFd afterwards if it is not needed anymore in the tracee.
-func (t *PtraceTracee) GetFd(traceeFd int) (hostFd int, err error) {
+// GetFds does a cross-process duplication of file descriptors from tracee into this process.
+// It uses an abstract unix domain socket to get traceeFds from the tracee. If any of traceeFds
+// are not found in the tracee, -1 is used in hostFds for it instead and no error is reported.
+// You should close traceeFds afterwards if they are not needed anymore in the tracee.
+func (t *PtraceTracee) GetFds(traceeFds []int) (hostFds []int, err error) {
 	if t.memoryAddress == 0 {
-		return -1, fmt.Errorf("tracee not attached")
+		return nil, fmt.Errorf("tracee not attached")
 	}
 
 	// Address starting with @ signals that this is an abstract unix domain socket.
 	u, err := uuid.NewRandom()
 	if err != nil {
-		return -1, err
+		return nil, err
 	}
 	addr := fmt.Sprintf("@dinit-%s.sock", u.String())
 
 	traceeSocket, err := t.sysSocket(unix.AF_UNIX, unix.SOCK_STREAM, 0)
 	if err != nil {
-		return -1, err
+		return nil, err
 	}
 	defer func() {
 		err2 := t.sysClose(traceeSocket)
@@ -217,68 +220,74 @@ func (t *PtraceTracee) GetFd(traceeFd int) (hostFd int, err error) {
 
 	err = t.sysBindUnix(traceeSocket, addr)
 	if err != nil {
-		return -1, err
+		return nil, err
 	}
 
 	err = t.sysListen(traceeSocket, 1)
 	if err != nil {
-		return -1, err
+		return nil, err
 	}
 
 	connection, err := net.Dial("unix", addr)
 	if err != nil {
-		return -1, fmt.Errorf("dial: %w", err)
+		return nil, fmt.Errorf("dial: %w", err)
 	}
 	defer connection.Close()
 
 	unixConnection, ok := connection.(*net.UnixConn)
 	if !ok {
-		return -1, fmt.Errorf("connection is %T and not net.UnixConn", connection)
+		return nil, fmt.Errorf("connection is %T and not net.UnixConn", connection)
 	}
 
 	traceeConnection, err := t.sysAccept(traceeSocket, 0)
 	if err != nil {
-		return -1, err
+		return nil, err
 	}
 	defer func() {
 		err2 := t.sysClose(traceeConnection)
 		err = errorsJoin(err, err2)
 	}()
 
-	// Encode the file descriptor.
-	rights := unix.UnixRights(traceeFd)
-	// Send it over. Write always returns error on short writes.
-	// We send one byte data just to be sure everything gets through.
-	_, _, err = t.sysSendmsg(traceeConnection, []byte{0}, rights, 0)
-	if err != nil {
-		return -1, err
+	for _, traceeFd := range traceeFds {
+		// Encode the file descriptor.
+		rights := unix.UnixRights(traceeFd)
+		// Send it over. Write always returns error on short writes.
+		// We send one byte data just to be sure everything gets through.
+		_, _, err = t.sysSendmsg(traceeConnection, []byte{0}, rights, 0)
+		if err != nil {
+			if errors.Is(err, unix.EBADF) {
+				hostFds = append(hostFds, -1)
+				continue
+			}
+			return hostFds, err
+		}
+
+		// We could be more precise with needed sizes here, but it is good enough.
+		p := make([]byte, dataSize)
+		oob := make([]byte, controlSize)
+		// TODO: What to do on short reads?
+		_, oobn, _, _, err := unixConnection.ReadMsgUnix(p, oob)
+		if err != nil {
+			return hostFds, err
+		}
+
+		// The buffer might not been used fully.
+		oob = oob[:oobn]
+
+		cmsgs, err := unix.ParseSocketControlMessage(oob)
+		if err != nil {
+			return hostFds, fmt.Errorf("ParseSocketControlMessage: %w", err)
+		}
+
+		fds, err := unix.ParseUnixRights(&cmsgs[0])
+		if err != nil {
+			return hostFds, fmt.Errorf("ParseUnixRights: %w", err)
+		}
+
+		hostFds = append(hostFds, fds[0])
 	}
 
-	// We could be more precise with needed sizes here, but it is good enough.
-	p := make([]byte, dataSize)
-	oob := make([]byte, controlSize)
-	// TODO: What to do on short reads?
-	_, oobn, _, _, err := unixConnection.ReadMsgUnix(p, oob)
-	if err != nil {
-		return -1, err
-	}
-
-	// The buffer might not been used fully.
-	oob = oob[:oobn]
-
-	cmsgs, err := unix.ParseSocketControlMessage(oob)
-	if err != nil {
-		return -1, fmt.Errorf("ParseSocketControlMessage: %w", err)
-	}
-
-	fds, err := unix.ParseUnixRights(&cmsgs[0])
-	if err != nil {
-		return -1, fmt.Errorf("ParseUnixRights: %w", err)
-	}
-
-	fd := fds[0]
-
-	return fd, nil
+	return hostFds, nil
 }
 
 // SetFd does a cross-process duplication of a file descriptor from this process into tracee.
@@ -878,29 +887,36 @@ func redirectStdoutStderr(pid int, stdoutWriter, stderrWriter *os.File) (stdout,
 		err = errorsJoin(err, err2)
 	}()
 
-	stdoutFd, err := t.GetFd(1)
+	fds, err := t.GetFds([]int{1, 2})
 	if err != nil {
+		// Some file descriptors might be retrieved, so we close them before returning.
+		for _, fd := range fds {
+			if fd != -1 {
+				unix.Close(fd)
+			}
+		}
 		return
 	}
-	stdout = os.NewFile(uintptr(stdoutFd), fmt.Sprintf("%d/stdout", pid))
-	defer func() {
-		if err != nil {
-			stdout.Close()
-			stdout = nil
-		}
-	}()
 
-	stderrFd, err := t.GetFd(2)
-	if err != nil {
-		return
+	if fds[0] != -1 {
+		stdout = os.NewFile(uintptr(fds[0]), fmt.Sprintf("%d/stdout", pid))
+		defer func() {
+			if err != nil {
+				stdout.Close()
+				stdout = nil
+			}
+		}()
 	}
-	stderr = os.NewFile(uintptr(stderrFd), fmt.Sprintf("%d/stderr", pid))
-	defer func() {
-		if err != nil {
-			stderr.Close()
-			stderr = nil
-		}
-	}()
+
+	if fds[1] != -1 {
+		stderr = os.NewFile(uintptr(fds[1]), fmt.Sprintf("%d/stderr", pid))
+		defer func() {
+			if err != nil {
+				stderr.Close()
+				stderr = nil
+			}
+		}()
+	}
 
 	err = t.SetFd(int(stdoutWriter.Fd()), 1)
 	if err != nil {
@@ -914,7 +930,146 @@ func redirectStdoutStderr(pid int, stdoutWriter, stderrWriter *os.File) (stdout,
 	return
 }
 
+func replaceFdForProcessFds(pid int, traceeFds []int, from, to *os.File) (err error) {
+	t := PtraceTracee{
+		Pid: pid,
+	}
+
+	err = t.Attach()
+	if err != nil {
+		return
+	}
+	defer func() {
+		err2 := t.Detach()
+		err = errorsJoin(err, err2)
+	}()
+
+	hostFds, err := t.GetFds(traceeFds)
+	// We close retrieved file descriptors no matter what on returning from this function.
+	defer func() {
+		for _, fd := range hostFds {
+			if fd != -1 {
+				unix.Close(fd)
+			}
+		}
+	}()
+	if err != nil {
+		return
+	}
+
+	for i, hostFd := range hostFds {
+		if hostFd == -1 {
+			continue
+		}
+		equal, err := equalFds(hostFd, int(from.Fd()))
+		if err != nil {
+			return err
+		}
+		if !equal {
+			continue
+		}
+
+		err = t.SetFd(int(to.Fd()), traceeFds[i])
+		if err != nil {
+			return err
+		}
+	}
+
+	return
+}
+
+// TODO: This replaces only file descriptors for the whole process and not threads which called unshare.
+func replaceFdForProcess(pid int, from, to *os.File) error {
+	fdPath := fmt.Sprintf("/proc/%d/fd", pid)
+	entries, err := os.ReadDir(fdPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+
+	fds := []int{}
+	for _, entry := range entries {
+		fd, err := strconv.Atoi(entry.Name())
+		if err != nil {
+			logWarnf("failed to parse fd %s: %s", entry.Name(), err)
+			continue
+		}
+		fds = append(fds, fd)
+	}
+
+	return replaceFdForProcessFds(pid, fds, from, to)
+}
+
+func equalFds(fd1, fd2 int) (bool, error) {
+	var stat1 unix.Stat_t
+	err := unix.Fstat(fd1, &stat1)
+	if err != nil {
+		return false, err
+	}
+	var stat2 unix.Stat_t
+	err = unix.Fstat(fd1, &stat2)
+	if err != nil {
+		return false, err
+	}
+	return stat1.Dev == stat2.Dev && stat1.Ino == stat2.Ino && stat1.Rdev == stat2.Rdev, nil
+}
+
+func replaceFdForProcessAndChildren(pid int, name string, from, to *os.File) error {
+	eq, err := equalFds(int(from.Fd()), int(to.Fd()))
+	if err != nil {
+		logWarnf("unable to compare file descriptors: %s", err)
+		return nil
+	}
+	if eq {
+		// Nothing to replace.
+		return nil
+	}
+
+	err = replaceFdForProcess(pid, from, to)
+	if err != nil {
+		logWarnf("error replacing %s fd for process with PID %d: %s", name, pid, err)
+	}
+
+	taskPath := fmt.Sprintf("/proc/%d/task", pid)
+	entries, err := os.ReadDir(taskPath)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			logWarnf("unable to read process tasks from %s: %s", taskPath, err)
+		}
+		return nil
+	}
+
+	for _, entry := range entries {
+		childrenPath := fmt.Sprintf("/proc/%d/task/%s/children", pid, entry.Name())
+		childrenData, err := os.ReadFile(childrenPath)
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				logWarnf("unable to read process children from %s: %s", childrenPath, err)
+			}
+			return nil
+		}
+		childrenPids := strings.Fields(string(childrenData))
+		for _, childPid := range childrenPids {
+			p, err := strconv.Atoi(childPid)
+			if err != nil {
+				logWarnf("failed to parse PID %s: %s", childPid, err)
+				continue
+			}
+			err = replaceFdForProcessAndChildren(p, name, from, to)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
 // The main function to setup redirect of stdout and stderr for a direct child.
+// Moreover, for the direct child and all its descendants it also replaces all
+// file descriptors matching those initial stdout and stderr with redirects as well.
 func ptraceRedirectStdoutStderr(pid int) (stdout, stderr *os.File, err error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -934,24 +1089,41 @@ func ptraceRedirectStdoutStderr(pid int) (stdout, stderr *os.File, err error) {
 
 	stdout, stdoutWriter, err := os.Pipe()
 	if err != nil {
-		return nil, nil, err
+		return
 	}
 	// Writer is not needed once it is (successfully or not) passed to the adopted process.
 	defer stdoutWriter.Close()
 	stderr, stderrWriter, err := os.Pipe()
 	if err != nil {
-		return nil, nil, err
+		return
 	}
 	// Writer is not needed once it is (successfully or not) passed to the adopted process.
 	defer stderrWriter.Close()
 
 	originalStdout, originalStderr, err := redirectStdoutStderr(pid, stdoutWriter, stderrWriter)
 	if err != nil {
-		return nil, nil, err
+		return
+	}
+	if originalStdout != nil {
+		defer originalStdout.Close()
+	}
+	if originalStderr != nil {
+		defer originalStderr.Close()
 	}
 
-	originalStdout.Close()
-	originalStderr.Close()
+	if originalStdout != nil {
+		err = replaceFdForProcessAndChildren(pid, "stdout", originalStdout, stdoutWriter)
+		if err != nil {
+			return
+		}
+	}
 
-	return stdout, stderr, nil
+	if originalStderr != nil {
+		err = replaceFdForProcessAndChildren(pid, "stderr", originalStderr, stderrWriter)
+		if err != nil {
+			return
+		}
+	}
+
+	return
 }
