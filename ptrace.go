@@ -114,11 +114,11 @@ func (t *PtraceTracee) Detach() error {
 	return nil
 }
 
-// Dup2 does a cross-process duplication of a file descriptor. It uses an abstract unix
+// SetFd does a cross-process duplication of a file descriptor. It uses an abstract unix
 // domain socket to send hostFd to the tracee and then dup2 syscall to set that file
 // descriptor to traceeFd in the tracee (any previous traceeFd is closed by dup2).
 // You should close hostFd afterwards if it is not needed anymore in the caller.
-func (t *PtraceTracee) Dup2(hostFd int, traceeFd int) (err error) {
+func (t *PtraceTracee) SetFd(hostFd int, traceeFd int) (err error) {
 	if t.memoryAddress == 0 {
 		return fmt.Errorf("tracee not attached")
 	}
@@ -672,11 +672,11 @@ func redirectStdoutStderr(pid int, stdoutWriter, stderrWriter *os.File) (err err
 		err = errorsJoin(err, err2)
 	}()
 
-	err = t.Dup2(int(stdoutWriter.Fd()), 1)
+	err = t.SetFd(int(stdoutWriter.Fd()), 1)
 	if err != nil {
 		return err
 	}
-	err = t.Dup2(int(stderrWriter.Fd()), 2)
+	err = t.SetFd(int(stderrWriter.Fd()), 2)
 	if err != nil {
 		return err
 	}
