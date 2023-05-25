@@ -898,6 +898,8 @@ func redirectStdoutStderr(pid int, stdoutWriter, stderrWriter *os.File) (stdout,
 		return
 	}
 
+	// When there is no error, number of file descriptors in fds should be the same
+	// as file descriptors we gave to GetFds, but some might be -1, which we skip.
 	if fds[0] != -1 {
 		stdout = os.NewFile(uintptr(fds[0]), fmt.Sprintf("%d/stdout", pid))
 		defer func() {
@@ -930,6 +932,9 @@ func redirectStdoutStderr(pid int, stdoutWriter, stderrWriter *os.File) (stdout,
 	return
 }
 
+// replaceFdForProcessFds copies traceeFds to this process to see which ones if any match
+// from. If match if found, we replace it with to by copying to to the tracee and set it
+// instead of the corresponding traceeFd.
 func replaceFdForProcessFds(pid int, traceeFds []int, from, to *os.File) (err error) {
 	t := PtraceTracee{
 		Pid: pid,
@@ -957,6 +962,9 @@ func replaceFdForProcessFds(pid int, traceeFds []int, from, to *os.File) (err er
 		return
 	}
 
+	// When there is no error, number of file descriptors in hostFds should be the same
+	// as file descriptors in traceeFds, but some might be -1, which we skip. They can
+	// be -1 because file descriptors might be closed since the time we enumerated them.
 	for i, hostFd := range hostFds {
 		if hostFd == -1 {
 			continue
@@ -978,6 +986,10 @@ func replaceFdForProcessFds(pid int, traceeFds []int, from, to *os.File) (err er
 	return
 }
 
+// replaceFdForProcess enumerates all file descriptors the process with pid has and replaceFdForProcessFds
+// with the list to see if any of enumerated file descriptors matches from. To do the matching we have to
+// copy those file descriptors to this process. This is inherently racy so we are lenient if after enumeration
+// we do not find some file descriptors from the list.
 // TODO: This replaces only file descriptors for the whole process and not threads which called unshare.
 func replaceFdForProcess(pid int, from, to *os.File) error {
 	fdPath := fmt.Sprintf("/proc/%d/fd", pid)
@@ -1016,6 +1028,13 @@ func equalFds(fd1, fd2 int) (bool, error) {
 	return stat1.Dev == stat2.Dev && stat1.Ino == stat2.Ino && stat1.Rdev == stat2.Rdev, nil
 }
 
+// A file descriptor we redirected in a direct children process might have been further inherited or
+// duplicated. Because of that we copied the original file descriptor to this process (into from) and
+// traverse the direct children and its descendants and search and replace for any copy of the file
+// descriptor matching from, which we then replace with to. To do the matching we have to copy all file
+// descriptors to this process. This is inherently racy as new children processes might be made after we
+// have enumerated them. Because we replace file descriptors in the parent process before we go to its
+// children we hope that any new children which are made use replaced file descriptors.
 func replaceFdForProcessAndChildren(pid int, name string, from, to *os.File) error {
 	eq, err := equalFds(int(from.Fd()), int(to.Fd()))
 	if err != nil {
