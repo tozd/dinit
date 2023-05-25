@@ -684,6 +684,7 @@ func redirectStdoutStderr(pid int, stdoutWriter, stderrWriter *os.File) (err err
 	return nil
 }
 
+// The main function to setup redirect of stdout and stderr for a direct child.
 func ptraceRedirectStdoutStderr(pid int) (stdout, stderr *os.File, err error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
