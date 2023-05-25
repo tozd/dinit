@@ -1009,7 +1009,7 @@ func equalFds(fd1, fd2 int) (bool, error) {
 		return false, err
 	}
 	var stat2 unix.Stat_t
-	err = unix.Fstat(fd1, &stat2)
+	err = unix.Fstat(fd2, &stat2)
 	if err != nil {
 		return false, err
 	}
