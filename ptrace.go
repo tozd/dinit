@@ -16,11 +16,14 @@ import (
 )
 
 const (
+	// These errno values are not really meant for user space programs (so they are not defined
+	// in unix package) but we need them as we operate on a lower level and handle them in doSyscall.
 	ERESTARTSYS    = unix.Errno(512)
 	ERESTARTNOINTR = unix.Errno(513)
 	ERESTARTNOHAND = unix.Errno(514)
 )
 
+// Errors are returned as negative numbers from syscalls but we compare them as uint64.
 const maxErrno = uint64(0xfffffffffffff001)
 
 const (
@@ -29,9 +32,11 @@ const (
 	memorySize  = 4096
 )
 
+// We want to return -1 as uint64 so we need a variable to make Go happy.
 var errorReturn = -1
 
-// Call a syscall and a breakpoint.
+// Call a syscall and a breakpoint. We do not use ptrace single step but ptrace cont
+// until a breakpoint so that it is easier to allow signal handlers in tracee to run.
 var syscallInstruction = [...]byte{0x0F, 0x05, 0xCC}
 
 // Do not wrap an error if both errors are not nil.
@@ -49,6 +54,7 @@ type PtraceTracee struct {
 	memoryAddress uint64
 }
 
+// Attach attaches to the tracee and allocates private working memory in it.
 func (t *PtraceTracee) Attach() error {
 	if t.memoryAddress != 0 {
 		return fmt.Errorf("tracee already attached")
@@ -83,6 +89,7 @@ func (t *PtraceTracee) Attach() error {
 	return nil
 }
 
+// Detach detaches from the tracee and frees the allocated private working memory in it.
 func (t *PtraceTracee) Detach() error {
 	if t.memoryAddress == 0 {
 		return fmt.Errorf("tracee not attached")
@@ -107,11 +114,16 @@ func (t *PtraceTracee) Detach() error {
 	return nil
 }
 
+// Dup2 does a cross-process duplication of a file descriptor. It uses an abstract unix
+// domain socket to send hostFd to the tracee and then dup2 syscall to set that file
+// descriptor to traceeFd in the tracee (any previous traceeFd is closed by dup2).
+// You should close hostFd afterwards if it is not needed anymore in the caller.
 func (t *PtraceTracee) Dup2(hostFd int, traceeFd int) (err error) {
 	if t.memoryAddress == 0 {
 		return fmt.Errorf("tracee not attached")
 	}
 
+	// Address starting with @ signals that this is an abstract unix domain socket.
 	addr := fmt.Sprintf("@dinit-%s.sock", uuid.NewString())
 	listen, err := net.Listen("unix", addr)
 	if err != nil {
@@ -119,6 +131,8 @@ func (t *PtraceTracee) Dup2(hostFd int, traceeFd int) (err error) {
 	}
 	defer listen.Close()
 
+	// SOCK_DGRAM did not work so we use SOCK_STREAM.
+	// See: https://stackoverflow.com/questions/76327509/sending-a-file-descriptor-from-go-to-c
 	traceeSocket, err := t.sysSocket(unix.AF_UNIX, unix.SOCK_STREAM, 0)
 	if err != nil {
 		return err
@@ -147,16 +161,17 @@ func (t *PtraceTracee) Dup2(hostFd int, traceeFd int) (err error) {
 	// Encode the file descriptor.
 	rights := unix.UnixRights(hostFd)
 	// Send it over. Write always returns error on short writes.
-	// We send one byte data just to be sure it gets through.
+	// We send one byte data just to be sure everything gets through.
 	_, _, err = unixConnection.WriteMsgUnix([]byte{0}, rights, nil)
 	if err != nil {
 		return err
 	}
 
+	// We could be more precise with needed sizes here, but it is good enough.
 	p := make([]byte, dataSize)
 	oob := make([]byte, controlSize)
 	// TODO: What to do on short reads?
-	_, oobn, _, err := t.sysRecvmsgUnix(traceeSocket, p, oob, 0)
+	_, oobn, _, err := t.sysRecvmsg(traceeSocket, p, oob, 0)
 	if err != nil {
 		return err
 	}
@@ -189,6 +204,9 @@ func (t *PtraceTracee) Dup2(hostFd int, traceeFd int) (err error) {
 	return nil
 }
 
+// Allocate private segment of memory in the tracee. We use it as
+// the working memory for syscalls. Memory is configured to be
+// executable as well and we store opcodes to run into it as well.
 func (t *PtraceTracee) allocateMemory() (uint64, error) {
 	addr, err := t.doSyscall(false, unix.SYS_MMAP, func(start uint64) ([]byte, [6]uint64, error) {
 		fd := -1
@@ -207,6 +225,7 @@ func (t *PtraceTracee) allocateMemory() (uint64, error) {
 	return addr, err
 }
 
+// Free private segment of memory in the tracee.
 func (t *PtraceTracee) freeMemory(address uint64) error {
 	_, err := t.doSyscall(false, unix.SYS_MUNMAP, func(start uint64) ([]byte, [6]uint64, error) {
 		return nil, [6]uint64{
@@ -220,6 +239,7 @@ func (t *PtraceTracee) freeMemory(address uint64) error {
 	return err
 }
 
+// socket syscall in the tracee.
 func (t *PtraceTracee) sysSocket(domain, typ, proto int) (int, error) {
 	fd, err := t.doSyscall(true, unix.SYS_SOCKET, func(start uint64) ([]byte, [6]uint64, error) {
 		return nil, [6]uint64{
@@ -234,6 +254,7 @@ func (t *PtraceTracee) sysSocket(domain, typ, proto int) (int, error) {
 	return int(fd), err
 }
 
+// close syscall in the tracee.
 func (t *PtraceTracee) sysClose(fd int) error {
 	_, err := t.doSyscall(true, unix.SYS_CLOSE, func(start uint64) ([]byte, [6]uint64, error) {
 		return nil, [6]uint64{
@@ -246,6 +267,7 @@ func (t *PtraceTracee) sysClose(fd int) error {
 	return err
 }
 
+// dup2 syscall in the tracee.
 func (t *PtraceTracee) sysDup2(oldFd, newFd int) error {
 	_, err := t.doSyscall(true, unix.SYS_DUP2, func(start uint64) ([]byte, [6]uint64, error) {
 		return nil, [6]uint64{
@@ -259,6 +281,8 @@ func (t *PtraceTracee) sysDup2(oldFd, newFd int) error {
 	return err
 }
 
+// connect syscall in the tracee for AF_UNIX socket path. If path starts with @, it is replaced
+// with null character to connect to an abstract unix domain socket.
 func (t *PtraceTracee) sysConnectUnix(fd int, path string) error {
 	_, err := t.doSyscall(true, unix.SYS_CONNECT, func(start uint64) ([]byte, [6]uint64, error) {
 		buf := new(bytes.Buffer)
@@ -303,7 +327,8 @@ func (t *PtraceTracee) sysConnectUnix(fd int, path string) error {
 	return err
 }
 
-func (t *PtraceTracee) sysRecvmsgUnix(fd int, p, oob []byte, flags int) (int, int, int, error) {
+// recvmsg syscall in the tracee.
+func (t *PtraceTracee) sysRecvmsg(fd int, p, oob []byte, flags int) (int, int, int, error) {
 	var payload []byte
 	res, err := t.doSyscall(true, unix.SYS_RECVMSG, func(start uint64) ([]byte, [6]uint64, error) {
 		buf := new(bytes.Buffer)
@@ -387,16 +412,16 @@ func (t *PtraceTracee) sysRecvmsgUnix(fd int, p, oob []byte, flags int) (int, in
 		}, nil
 	})
 	if err != nil {
-		return int(res), 0, 0, fmt.Errorf("sys recvmsg unix: %w", err)
+		return int(res), 0, 0, fmt.Errorf("sys recvmsg: %w", err)
 	}
 	buf := bytes.NewReader(payload)
 	err = binary.Read(buf, binary.LittleEndian, p) // unix.Iovec.Base
 	if err != nil {
-		return int(res), 0, 0, fmt.Errorf("sys recvmsg unix: %w", err)
+		return int(res), 0, 0, fmt.Errorf("sys recvmsg: %w", err)
 	}
 	err = binary.Read(buf, binary.LittleEndian, oob) // unix.Msghdr.Control
 	if err != nil {
-		return int(res), 0, 0, fmt.Errorf("sys recvmsg unix: %w", err)
+		return int(res), 0, 0, fmt.Errorf("sys recvmsg: %w", err)
 	}
 	_, _ = io.CopyN(io.Discard, buf, 8) // unix.Iovec.Base field.
 	_, _ = io.CopyN(io.Discard, buf, 8) // unix.Iovec.Len field.
@@ -409,17 +434,25 @@ func (t *PtraceTracee) sysRecvmsgUnix(fd int, p, oob []byte, flags int) (int, in
 	var oobn uint64
 	err = binary.Read(buf, binary.LittleEndian, &oobn) // Controllen field.
 	if err != nil {
-		return int(res), 0, 0, fmt.Errorf("sys recvmsg unix: %w", err)
+		return int(res), 0, 0, fmt.Errorf("sys recvmsg: %w", err)
 	}
 	var recvflags int32
 	err = binary.Read(buf, binary.LittleEndian, &recvflags) // Flags field.
 	if err != nil {
-		return int(res), 0, 0, fmt.Errorf("sys recvmsg unix: %w", err)
+		return int(res), 0, 0, fmt.Errorf("sys recvmsg: %w", err)
 	}
 	return int(res), int(oobn), int(recvflags), nil
 }
 
+// Low-level call of a system call in the tracee. Use doSyscall instead.
+// In almost all cases you want to use it with useMemory set to true to
+// not change code of the tracee to run a syscall. (We use useMemory set
+// to false only to obtain and free such memory.)
 func (t *PtraceTracee) syscall(useMemory bool, call int, args func(start uint64) ([]byte, [6]uint64, error)) (result uint64, err error) {
+	if useMemory && t.memoryAddress == 0 {
+		return uint64(errorReturn), fmt.Errorf("syscall using memory is not possible without memory")
+	}
+
 	var originalRegs unix.PtraceRegs
 	err = unix.PtraceGetRegs(t.Pid, &originalRegs)
 	if err != nil {
@@ -520,7 +553,11 @@ func (t *PtraceTracee) syscall(useMemory bool, call int, args func(start uint64)
 	return resultRegs.Rax, nil
 }
 
+// Syscalls can be interrupted by signal handling and might abort. So we
+// wrap them with a loop which retries them automatically if interrupted.
+// We do not handle EAGAIN here on purpose, to not block in a loop.
 func (t *PtraceTracee) doSyscall(useMemory bool, call int, args func(start uint64) ([]byte, [6]uint64, error)) (uint64, error) {
+	// TODO: Handle ERESTART_RESTARTBLOCK as well and call restart_syscall syscall?
 	for {
 		result, err := t.syscall(useMemory, call, args)
 		if err != nil {
@@ -540,6 +577,7 @@ func (t *PtraceTracee) doSyscall(useMemory bool, call int, args func(start uint6
 	}
 }
 
+// Read from the memory of the tracee.
 func (t *PtraceTracee) readData(address uintptr, length int) ([]byte, error) {
 	data := make([]byte, length)
 	n, err := unix.PtracePeekData(t.Pid, address, data)
@@ -553,6 +591,7 @@ func (t *PtraceTracee) readData(address uintptr, length int) ([]byte, error) {
 	return data, nil
 }
 
+// Read into the memory of the tracee.
 func (t *PtraceTracee) writeData(address uintptr, data []byte) error {
 	n, err := unix.PtracePokeData(t.Pid, address, data)
 	if err != nil {
@@ -565,6 +604,11 @@ func (t *PtraceTracee) writeData(address uintptr, data []byte) error {
 	return nil
 }
 
+// When we do a syscall we set opcodes to call a syscall and we put afterwards
+// a breakpoint (see syscallInstruction). This function executes those opcodes
+// and returns once we hit the breakpoint. During execution signal handlers
+// of the trustee might run as well before the breakpoint is reached (this is
+// why we use ptrace cont with a breakpoint and not ptrace single step).
 func (t *PtraceTracee) runToBreakpoint() error {
 	err := unix.PtraceCont(t.Pid, 0)
 	if err != nil {
@@ -588,14 +632,18 @@ func (t *PtraceTracee) waitTrap(cause int) error {
 		if err != nil {
 			return fmt.Errorf("wait trap: %w", err)
 		}
+		// A breakpoint or other trap cause we expected has been reached.
 		if status.TrapCause() == cause {
 			return nil
+		} else if status.TrapCause() != -1 {
+			logWarnf("unexpected trap cause for PID %d: %d, expected %d", t.Pid, status.TrapCause(), cause)
+			return nil
+
 		} else if status.Stopped() {
-			if status.StopSignal() == unix.SIGTRAP {
-				logWarnf("unexpected trap cause for PID %d: %d, expected %d", t.Pid, status.TrapCause(), cause)
-				return nil
-			}
-			// We pass all other signals on to the tracee.
+			// If the tracee stopped it might have stopped for some other signal. While a tracee is
+			// ptraced any signal it receives stops the tracee for us to decide what to do about the
+			// signal. In our case we just pass the signal back to the tracee using ptrace cont and
+			// let its signal handler do its work.
 			err := unix.PtraceCont(t.Pid, int(status.StopSignal()))
 			if err != nil {
 				return fmt.Errorf("wait trap: ptrace cont with %d: %w", int(status.StopSignal()), err)
