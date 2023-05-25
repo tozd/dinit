@@ -621,7 +621,9 @@ func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) {
 			}
 			childrenData, err := os.ReadFile(childrenPath)
 			if err != nil {
-				logWarnf("unable to read process children from %s: %w", childrenPath, err)
+				if !errors.Is(err, os.ErrNotExist) {
+					logWarnf("unable to read process children from %s: %s", childrenPath, err)
+				}
 				continue
 			}
 			childrenPids := strings.Fields(string(childrenData))
@@ -629,7 +631,7 @@ func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) {
 			for _, childPid := range childrenPids {
 				p, err := strconv.Atoi(childPid)
 				if err != nil {
-					logWarnf("failed to parse PID %s: %w", childPid, err)
+					logWarnf("failed to parse PID %s: %s", childPid, err)
 					continue
 				}
 				if hasRunningChildPid(p) {
