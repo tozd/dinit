@@ -709,9 +709,9 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
 	// we stop all other services and exit ourselves.
 	defer mainCancel()
 
-	stdout, stderr, err := hijackStdoutStderr(pid)
+	stdout, stderr, err := ptraceRedirectStdoutStderr(pid)
 	if err != nil {
-		logWarnf("%s/%s: error hijacking stdout and stderr: %s", name, stage, err)
+		logWarnf("%s/%s: error redirecting stdout and stderr: %s", name, stage, err)
 	}
 
 	p, _ := os.FindProcess(pid) // This call cannot fail.
