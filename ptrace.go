@@ -124,7 +124,11 @@ func (t *PtraceTracee) Dup2(hostFd int, traceeFd int) (err error) {
 	}
 
 	// Address starting with @ signals that this is an abstract unix domain socket.
-	addr := fmt.Sprintf("@dinit-%s.sock", uuid.NewString())
+	u, err := uuid.NewRandom()
+	if err != nil {
+		return err
+	}
+	addr := fmt.Sprintf("@dinit-%s.sock", u.String())
 	listen, err := net.Listen("unix", addr)
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
