@@ -658,6 +658,32 @@ func (t *PtraceTracee) waitTrap(cause int) error {
 	}
 }
 
+func redirectStdoutStderr(pid int, stdoutWriter, stderrWriter *os.File) (err error) {
+	t := PtraceTracee{
+		Pid: pid,
+	}
+
+	err = t.Attach()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		err2 := t.Detach()
+		err = errorsJoin(err, err2)
+	}()
+
+	err = t.Dup2(int(stdoutWriter.Fd()), 1)
+	if err != nil {
+		return err
+	}
+	err = t.Dup2(int(stderrWriter.Fd()), 2)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func ptraceRedirectStdoutStderr(pid int) (stdout, stderr *os.File, err error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -688,24 +714,7 @@ func ptraceRedirectStdoutStderr(pid int) (stdout, stderr *os.File, err error) {
 	// Writer is not needed once it is (successfully or not) passed to the adopted process.
 	defer stderrWriter.Close()
 
-	t := PtraceTracee{
-		Pid: pid,
-	}
-
-	err = t.Attach()
-	if err != nil {
-		return nil, nil, err
-	}
-	defer func() {
-		err2 := t.Detach()
-		err = errorsJoin(err, err2)
-	}()
-
-	err = t.Dup2(int(stdoutWriter.Fd()), 1)
-	if err != nil {
-		return nil, nil, err
-	}
-	err = t.Dup2(int(stderrWriter.Fd()), 2)
+	err = redirectStdoutStderr(pid, stdoutWriter, stderrWriter)
 	if err != nil {
 		return nil, nil, err
 	}
