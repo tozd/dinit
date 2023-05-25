@@ -279,12 +279,14 @@ func (t *PtraceTracee) GetFds(traceeFds []int) (hostFds []int, err error) {
 			return hostFds, fmt.Errorf("ParseSocketControlMessage: %w", err)
 		}
 
-		fds, err := unix.ParseUnixRights(&cmsgs[0])
-		if err != nil {
-			return hostFds, fmt.Errorf("ParseUnixRights: %w", err)
-		}
+		for _, cmsg := range cmsgs {
+			fds, err := unix.ParseUnixRights(&cmsg)
+			if err != nil {
+				return hostFds, fmt.Errorf("ParseUnixRights: %w", err)
+			}
 
-		hostFds = append(hostFds, fds[0])
+			hostFds = append(hostFds, fds...)
+		}
 	}
 
 	return hostFds, nil
