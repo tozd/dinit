@@ -186,7 +186,7 @@ func main() {
 func handleSigChild() {
 	// We cannot just set SIGCHLD to SIG_IGN for kernel to reap zombies (and all children) for us,
 	// because we have to store wait statuses for our own children.
-	c := make(chan os.Signal)
+	c := make(chan os.Signal, 1)
 	signal.Notify(c, unix.SIGCHLD)
 	for range c {
 		reapChildren()
@@ -235,7 +235,7 @@ func reapChildren() {
 }
 
 func handleStopSignals() {
-	c := make(chan os.Signal, 3)
+	c := make(chan os.Signal, 2)
 	signal.Notify(c, unix.SIGTERM, unix.SIGINT)
 	for s := range c {
 		if mainContext.Err() != nil {
