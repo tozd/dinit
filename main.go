@@ -1,12 +1,19 @@
-// We call maybeSetExitCode(1) early on an error and do not leave for error to
-// first propagate and then set it, so that during cleanup while the error is
-// propagating we do not set some other exit code first.
-
+// We call maybeSetExitCode(1) early on an error and do not leave for error to first propagate and then
+// set it, so that during cleanup while the error is propagating we do not set some other exit code first.
+//
 // We cannot use kcmp to compare file descriptors.
 // See: https://github.com/moby/moby/issues/45621
-
+//
 // We cannot use pidfd_getfd to move file descriptors between processes.
 // See: https://github.com/moby/moby/issues/45622
+//
+// We do not use waitpid(-1, ...) or a similar call which would indiscriminately wait on any subprocess
+// because that interferes with any other wait syscall by the same process. Because we care both about
+// running and terminated reparented processes (and not just terminated, i.e., zombie processes) we
+// cannot rely on SIGCHLD anyway to be informed about new reparented processes, so we do not use
+// SIGCHLD + waitpid(-1, ...) but instead poll /proc/1/task/1/children at a regular interval which gives
+// us pids of zombie processes as well and we can reap them explicitly by the pid.
+// See: https://github.com/golang/go/issues/60481
 
 package main
 
