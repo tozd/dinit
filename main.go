@@ -598,6 +598,9 @@ func getProcessCommandLine(pid int) (string, error) {
 	cmdlinePath := fmt.Sprintf("/proc/%d/cmdline", pid)
 	cmdlineData, err := os.ReadFile(cmdlinePath)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", os.ErrProcessDone
+		}
 		// This is an utility function, so we do not call maybeSetExitCode(1) here
 		// but leave it to the caller to decide if and when to do so.
 		return "", err
@@ -609,6 +612,9 @@ func isZombie(pid int) (bool, error) {
 	statPath := fmt.Sprintf("/proc/%d/stat", pid)
 	statData, err := os.ReadFile(statPath)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, os.ErrProcessDone
+		}
 		// This is an utility function, so we do not call maybeSetExitCode(1) here
 		// but leave it to the caller to decide if and when to do so.
 		return false, err
@@ -624,6 +630,9 @@ func getProcessProgramName(pid int) (string, error) {
 	statPath := fmt.Sprintf("/proc/%d/stat", pid)
 	statData, err := os.ReadFile(statPath)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", os.ErrProcessDone
+		}
 		// This is an utility function, so we do not call maybeSetExitCode(1) here
 		// but leave it to the caller to decide if and when to do so.
 		return "", err
@@ -674,8 +683,8 @@ func getProcessInfo(pid int) (string, string, string, error) {
 func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
 	cmdline, name, stage, err := getProcessInfo(pid)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			// Not a problem, process does not exist anymore, we do not have to do anything about it anymore.
+		if errors.Is(err, os.ErrProcessDone) {
+			// Not a problem, the process does not exist anymore, we do not have to do anything about it anymore.
 			// In this case it is OK if reparentingAdopt gets called multiple times,
 			// it will just not do anything anymore.
 			return nil
@@ -700,6 +709,7 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
 	zombie, err := isZombie(pid)
 	if err != nil {
 		if errors.Is(err, os.ErrProcessDone) {
+			// The process does not exist anymore, nothing for us to do anymore.
 			return nil
 		}
 		maybeSetExitCode(1)
@@ -787,8 +797,8 @@ func doWait(p *os.Process, name, stage string) error {
 func reparentingTerminate(_ context.Context, g *errgroup.Group, pid int) error {
 	cmdline, name, stage, err := getProcessInfo(pid)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			// Not a problem, process does not exist anymore, we do not have to do anything about it anymore.
+		if errors.Is(err, os.ErrProcessDone) {
+			// Not a problem, the process does not exist anymore, we do not have to do anything about it anymore.
 			// In this case it is OK if reparentingTerminate gets called multiple times,
 			// it will just not do anything anymore.
 			return nil
@@ -804,6 +814,7 @@ func reparentingTerminate(_ context.Context, g *errgroup.Group, pid int) error {
 	zombie, err := isZombie(pid)
 	if err != nil {
 		if errors.Is(err, os.ErrProcessDone) {
+			// The process does not exist anymore, nothing for us to do anymore.
 			return nil
 		}
 		maybeSetExitCode(1)
