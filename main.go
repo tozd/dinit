@@ -85,6 +85,8 @@ func init() {
 	mainContext, mainCancel = context.WithCancel(context.Background())
 }
 
+var mainPid = os.Getpid()
+
 var exitCode *int = nil
 var exitCodeMu sync.Mutex
 
@@ -130,7 +132,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if pid := os.Getpid(); pid != 1 {
+	if pid := mainPid; pid != 1 {
 		logInfof("not running as a PID 1, but PID %d, registering as a process subreaper", pid)
 		// We are not running as PID 1 so we register ourselves as a process subreaper.
 		_, _, errno := unix.RawSyscall(unix.SYS_PRCTL, unix.PR_SET_CHILD_SUBREAPER, 1, 0)
@@ -548,7 +550,7 @@ func removeProcessedPid(pid int) {
 // as soon as possible.
 func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) {
 	// Processes get reparented to the main thread which has task ID matching PID.
-	childrenPath := fmt.Sprintf("/proc/%d/task/%d/children", os.Getpid(), os.Getpid())
+	childrenPath := fmt.Sprintf("/proc/%d/task/%d/children", mainPid, mainPid)
 	unknownPids := map[int]bool{}
 	done := ctx.Done()
 	sigchild := make(chan os.Signal, 1)
