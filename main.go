@@ -48,7 +48,7 @@ const reparentingInterval = time.Second
 // How long to wait after SIGTERM to send SIGKILL to a reparented process?
 const reparentingKillTimeout = 30 * time.Second
 
-var procStatRegexp = regexp.MustCompile(`\((.*)\)`)
+var procStatRegexp = regexp.MustCompile(`\((.*)\) (.)`)
 
 // TODO: Output milliseconds. See: https://github.com/golang/go/issues/60249
 const logFlags = log.Ldate | log.Ltime | log.LUTC
@@ -326,7 +326,7 @@ func redirectJSON(stage, name string, jsonName []byte, reader io.ReadCloser) {
 	}
 }
 
-func doWait(ctx context.Context, pid int, wait func() (*os.ProcessState, error), stage, name string, jsonName []byte, stdout, stderr *os.File) error {
+func doRedirectAndWait(ctx context.Context, pid int, wait func() (*os.ProcessState, error), stage, name string, jsonName []byte, stdout, stderr *os.File) error {
 	// We do not care about context because we want logging redirects to operate
 	// as long as stdout and stderr are open. This could be longer than the process
 	// is running because they could be further inherited (or duplicated)
@@ -434,7 +434,7 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 
 	logInfof("%s/stop: running with PID %d", name, cmd.Process.Pid)
 
-	return doWait(nil, cmd.Process.Pid, func() (*os.ProcessState, error) {
+	return doRedirectAndWait(nil, cmd.Process.Pid, func() (*os.ProcessState, error) {
 		err := cmd.Wait()
 		return cmd.ProcessState, err
 	}, "stop", name, jsonName, stdout, stderr)
@@ -502,7 +502,7 @@ func runService(ctx context.Context, name, p string) error {
 
 	logInfof("%s/run: running with PID %d", name, cmd.Process.Pid)
 
-	return doWait(ctx, cmd.Process.Pid, func() (*os.ProcessState, error) {
+	return doRedirectAndWait(ctx, cmd.Process.Pid, func() (*os.ProcessState, error) {
 		err := cmd.Wait()
 		return cmd.ProcessState, err
 	}, "run", name, jsonName, stdout, stderr)
@@ -553,6 +553,8 @@ func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) {
 	// Processes get reparented to the main thread which has task ID matching PID.
 	childrenPath := fmt.Sprintf("/proc/%d/task/%d/children", mainPid, mainPid)
 	done := ctx.Done()
+	// It is OK if some SIGCHLD signal is missed because we are checking for reparented
+	// processes (and thus zombies as well) at a regular interval anyway.
 	sigchild := make(chan os.Signal, 1)
 	signal.Notify(sigchild, unix.SIGCHLD)
 	ticker := time.NewTicker(reparentingInterval)
@@ -603,6 +605,21 @@ func getProcessCommandLine(pid int) (string, error) {
 	return string(bytes.ReplaceAll(cmdlineData, []byte("\x00"), []byte(" "))), nil
 }
 
+func isZombie(pid int) (bool, error) {
+	statPath := fmt.Sprintf("/proc/%d/stat", pid)
+	statData, err := os.ReadFile(statPath)
+	if err != nil {
+		// This is an utility function, so we do not call maybeSetExitCode(1) here
+		// but leave it to the caller to decide if and when to do so.
+		return false, err
+	}
+	match := procStatRegexp.FindSubmatch(statData)
+	if len(match) != 3 {
+		return false, fmt.Errorf("could not match process state in %s: %s", statPath, statData)
+	}
+	return string(match[2]) == "Z", nil
+}
+
 func getProcessProgramName(pid int) (string, error) {
 	statPath := fmt.Sprintf("/proc/%d/stat", pid)
 	statData, err := os.ReadFile(statPath)
@@ -612,8 +629,8 @@ func getProcessProgramName(pid int) (string, error) {
 		return "", err
 	}
 	match := procStatRegexp.FindSubmatch(statData)
-	if len(match) != 2 {
-		return "", fmt.Errorf("could not match program name in proc stat: %s", statData)
+	if len(match) != 3 {
+		return "", fmt.Errorf("could not match executable name in %s: %s", statPath, statData)
 	}
 	return string(match[1]), nil
 }
@@ -672,6 +689,26 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
 		return err
 	}
 
+	// When adopting, then when the process stops (which is when this function returns)
+	// we stop all other services and exit ourselves.
+	defer mainCancel()
+
+	p, _ := os.FindProcess(pid) // This call cannot fail.
+
+	// Checking if the process is a zombie is primarily cosmetic to reduce
+	// potentially misleading logging messages.
+	zombie, err := isZombie(pid)
+	if err != nil {
+		if errors.Is(err, os.ErrProcessDone) {
+			return nil
+		}
+		maybeSetExitCode(1)
+		return err
+	}
+	if zombie {
+		return reapZombie(p, name, stage, cmdline)
+	}
+
 	if cmdline != "" {
 		logWarnf("%s/%s: adopting reparented child process with PID %d: %s", name, stage, pid, cmdline)
 	} else {
@@ -680,16 +717,12 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
 
 	setRunningChildPid(pid)
 	defer removeRunningChildPid(pid)
-	// When the process stops (which is when this function returns)
-	// we stop all other services and exit ourselves.
-	defer mainCancel()
 
 	stdout, stderr, err := ptraceRedirectStdoutStderr(pid)
 	if err != nil {
 		logWarnf("%s/%s: error redirecting stdout and stderr: %s", name, stage, err)
 	}
 
-	p, _ := os.FindProcess(pid) // This call cannot fail.
 	done := make(chan struct{})
 	defer close(done)
 
@@ -717,7 +750,36 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
 		}
 	})
 
-	return doWait(ctx, pid, p.Wait, stage, name, jsonName, stdout, stderr)
+	return doRedirectAndWait(ctx, pid, p.Wait, stage, name, jsonName, stdout, stderr)
+}
+
+func reapZombie(p *os.Process, name, stage, cmdline string) error {
+	if cmdline != "" {
+		logWarnf("%s/%s: reaping process with PID %d: %s", name, stage, p.Pid, cmdline)
+	} else {
+		logWarnf("%s/%s: reaping process with PID %d", name, stage, p.Pid)
+	}
+
+	return doWait(p, name, stage)
+}
+
+func doWait(p *os.Process, name, stage string) error {
+	var status syscall.WaitStatus
+	state, err := p.Wait()
+	if err != nil {
+		maybeSetExitCode(1)
+		return fmt.Errorf("%s/%s: error waiting for the process: %w", name, stage, err)
+	} else {
+		status = state.Sys().(syscall.WaitStatus)
+	}
+
+	if status.Exited() {
+		logInfof("%s/%s: PID %d finished with status %d", name, stage, p.Pid, status.ExitStatus())
+	} else {
+		logInfof("%s/%s: PID %d finished with signal %d", name, stage, p.Pid, status.Signal())
+	}
+
+	return nil
 }
 
 // We do not care about context cancellation. Even if the context is canceled we still
@@ -735,13 +797,28 @@ func reparentingTerminate(_ context.Context, g *errgroup.Group, pid int) error {
 		return err
 	}
 
+	p, _ := os.FindProcess(pid) // This call cannot fail.
+
+	// Checking if the process is a zombie is primarily cosmetic to reduce
+	// potentially misleading logging messages.
+	zombie, err := isZombie(pid)
+	if err != nil {
+		if errors.Is(err, os.ErrProcessDone) {
+			return nil
+		}
+		maybeSetExitCode(1)
+		return err
+	}
+	if zombie {
+		return reapZombie(p, name, stage, cmdline)
+	}
+
 	if cmdline != "" {
 		logWarnf("%s/%s: terminating reparented child process with PID %d: %s", name, stage, pid, cmdline)
 	} else {
 		logWarnf("%s/%s: terminating reparented child process with PID %d", name, stage, pid)
 	}
 
-	p, _ := os.FindProcess(pid) // This call cannot fail.
 	done := make(chan struct{})
 	defer close(done)
 
@@ -789,20 +866,5 @@ func reparentingTerminate(_ context.Context, g *errgroup.Group, pid int) error {
 
 	// By waiting we are also making sure that dinit does not exit before
 	// this reparented child process exits.
-	var status syscall.WaitStatus
-	state, err := p.Wait()
-	if err != nil {
-		maybeSetExitCode(1)
-		return fmt.Errorf("%s/%s: error waiting for the process: %w", name, stage, err)
-	} else {
-		status = state.Sys().(syscall.WaitStatus)
-	}
-
-	if status.Exited() {
-		logInfof("%s/%s: PID %d finished with status %d", name, stage, pid, status.ExitStatus())
-	} else {
-		logInfof("%s/%s: PID %d finished with signal %d", name, stage, pid, status.Signal())
-	}
-
-	return nil
+	return doWait(p, name, stage)
 }
