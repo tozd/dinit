@@ -1,5 +1,5 @@
-// We call maybeSetExitCode(1) early on an error and do not leave for error to first propagate and then
-// set it, so that during cleanup while the error is propagating we do not set some other exit code first.
+// We call maybeSetExitCode(exitDinitFailure) early on an error and do not leave for error to first propagate
+// and then set it, so that during cleanup while the error is propagating we do not set some other exit code first.
 //
 // We cannot use kcmp to compare file descriptors.
 // See: https://github.com/moby/moby/issues/45621
@@ -54,6 +54,13 @@ const reparentingInterval = time.Second
 
 // How long to wait after SIGTERM to send SIGKILL to a reparented process?
 const reparentingKillTimeout = 30 * time.Second
+
+const (
+	exitSuccess      = 0
+	exitDinitFailure = 1
+	// 2 is used when Golang runtime fails due to an unrecovered panic or an unexpected runtime condition.
+	exitServiceFailure = 3
+)
 
 var procStatRegexp = regexp.MustCompile(`\((.*)\) (.)`)
 
@@ -137,7 +144,7 @@ func main() {
 		// Nothing.
 	default:
 		logErrorf("invalid log level %s", level)
-		os.Exit(1)
+		os.Exit(exitDinitFailure)
 	}
 
 	if pid := mainPid; pid != 1 {
@@ -146,7 +153,7 @@ func main() {
 		_, _, errno := unix.RawSyscall(unix.SYS_PRCTL, unix.PR_SET_CHILD_SUBREAPER, 1, 0)
 		if errno != 0 {
 			logError(errno)
-			os.Exit(1)
+			os.Exit(exitDinitFailure)
 		}
 	}
 
@@ -163,7 +170,7 @@ func main() {
 	default:
 		logErrorf("invalid reparenting policy %s", policy)
 		// We haven't yet used the errgroup, so we can just exit.
-		os.Exit(1)
+		os.Exit(exitDinitFailure)
 	}
 
 	g.Go(func() error {
@@ -175,7 +182,7 @@ func main() {
 		if errors.Is(err, context.Canceled) {
 			// Nothing.
 		} else {
-			maybeSetExitCode(1)
+			maybeSetExitCode(exitDinitFailure)
 			logError(err)
 		}
 	}
@@ -195,7 +202,7 @@ func handleStopSignals() {
 		} else {
 			logInfof("got signal %d, stopping children", s)
 			// Even if children complain being terminated, we still exit with 0.
-			maybeSetExitCode(0)
+			maybeSetExitCode(exitSuccess)
 			mainCancel()
 		}
 	}
@@ -231,7 +238,7 @@ func hasRunningChildPid(pid int) bool {
 func runServices(ctx context.Context, g *errgroup.Group) error {
 	entries, err := os.ReadDir(etcService)
 	if err != nil {
-		maybeSetExitCode(1)
+		maybeSetExitCode(exitDinitFailure)
 		return err
 	}
 	found := false
@@ -244,7 +251,7 @@ func runServices(ctx context.Context, g *errgroup.Group) error {
 		p := path.Join(etcService, name)
 		info, err := os.Stat(p)
 		if err != nil {
-			maybeSetExitCode(1)
+			maybeSetExitCode(exitDinitFailure)
 			return err
 		}
 		// We skip anything which is not a directory.
@@ -361,7 +368,7 @@ func doRedirectAndWait(ctx context.Context, pid int, wait func() (*os.ProcessSta
 			// This is a condition in Wait when err is set when process fails, so we just ignore the err.
 			status = state.Sys().(syscall.WaitStatus)
 		} else {
-			maybeSetExitCode(1)
+			maybeSetExitCode(exitDinitFailure)
 			return fmt.Errorf("%s/%s: error waiting for the process: %w", name, stage, err)
 		}
 	} else {
@@ -370,13 +377,13 @@ func doRedirectAndWait(ctx context.Context, pid int, wait func() (*os.ProcessSta
 
 	if status.Exited() {
 		if status.ExitStatus() != 0 {
-			maybeSetExitCode(2)
+			maybeSetExitCode(exitServiceFailure)
 		}
 		logInfof("%s/%s: PID %d finished with status %d", name, stage, pid, status.ExitStatus())
 	} else {
 		// If process finished because of the signal but we have not been stopping it, we see it is as a process error.
 		if ctx == nil || ctx.Err() == nil {
-			maybeSetExitCode(2)
+			maybeSetExitCode(exitServiceFailure)
 		}
 		logInfof("%s/%s: PID %d finished with signal %d", name, stage, pid, status.Signal())
 	}
@@ -395,13 +402,13 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 	// See: https://go-review.googlesource.com/c/tools/+/484741
 	stdout, stdoutWriter, err := os.Pipe()
 	if err != nil {
-		maybeSetExitCode(1)
+		maybeSetExitCode(exitDinitFailure)
 		return err
 	}
 	cmd.Stdout = stdoutWriter
 	stderr, stderrWriter, err := os.Pipe()
 	if err != nil {
-		maybeSetExitCode(1)
+		maybeSetExitCode(exitDinitFailure)
 		return err
 	}
 	cmd.Stderr = stderrWriter
@@ -428,13 +435,13 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 				if errors.Is(err, os.ErrProcessDone) {
 					return nil
 				}
-				maybeSetExitCode(1)
+				maybeSetExitCode(exitDinitFailure)
 				return err
 			}
 
 			return nil
 		}
-		maybeSetExitCode(1)
+		maybeSetExitCode(exitDinitFailure)
 		return err
 	}
 	setRunningChildPid(cmd.Process.Pid)
@@ -452,7 +459,7 @@ func runService(ctx context.Context, name, p string) error {
 	logInfof("%s/run: starting", name)
 	jsonName, err := json.Marshal(name)
 	if err != nil {
-		maybeSetExitCode(1)
+		maybeSetExitCode(exitDinitFailure)
 		return err
 	}
 	r := path.Join(p, "run")
@@ -467,7 +474,7 @@ func runService(ctx context.Context, name, p string) error {
 	// See: https://go-review.googlesource.com/c/tools/+/484741
 	stdout, stdoutWriter, err := os.Pipe()
 	if err != nil {
-		maybeSetExitCode(1)
+		maybeSetExitCode(exitDinitFailure)
 		return err
 	}
 	cmd.Stdout = stdoutWriter
@@ -477,7 +484,7 @@ func runService(ctx context.Context, name, p string) error {
 		stdout.Close()
 		stdoutWriter.Close()
 
-		maybeSetExitCode(1)
+		maybeSetExitCode(exitDinitFailure)
 		return err
 	}
 	cmd.Stderr = stderrWriter
@@ -498,7 +505,7 @@ func runService(ctx context.Context, name, p string) error {
 		// Start can fail when context is canceled, but we do not want to set
 		// the exit code because of the cancellation.
 		if !errors.Is(err, context.Canceled) {
-			maybeSetExitCode(1)
+			maybeSetExitCode(exitDinitFailure)
 		}
 		return err
 	}
@@ -609,7 +616,7 @@ func getProcessCommandLine(pid int) (string, error) {
 		if errors.Is(err, os.ErrNotExist) {
 			return "", os.ErrProcessDone
 		}
-		// This is an utility function, so we do not call maybeSetExitCode(1) here
+		// This is an utility function, so we do not call maybeSetExitCode(exitDinitFailure) here
 		// but leave it to the caller to decide if and when to do so.
 		return "", err
 	}
@@ -624,7 +631,7 @@ func isZombie(pid int) (bool, error) {
 		if errors.Is(err, os.ErrNotExist) {
 			return false, os.ErrProcessDone
 		}
-		// This is an utility function, so we do not call maybeSetExitCode(1) here
+		// This is an utility function, so we do not call maybeSetExitCode(exitDinitFailure) here
 		// but leave it to the caller to decide if and when to do so.
 		return false, err
 	}
@@ -642,7 +649,7 @@ func getProcessProgramName(pid int) (string, error) {
 		if errors.Is(err, os.ErrNotExist) {
 			return "", os.ErrProcessDone
 		}
-		// This is an utility function, so we do not call maybeSetExitCode(1) here
+		// This is an utility function, so we do not call maybeSetExitCode(exitDinitFailure) here
 		// but leave it to the caller to decide if and when to do so.
 		return "", err
 	}
@@ -656,7 +663,7 @@ func getProcessProgramName(pid int) (string, error) {
 func getProcessInfo(pid int) (string, string, string, error) {
 	cmdline, err := getProcessCommandLine(pid)
 	if err != nil {
-		// This is an utility function, so we do not call maybeSetExitCode(1) here
+		// This is an utility function, so we do not call maybeSetExitCode(exitDinitFailure) here
 		// but leave it to the caller to decide if and when to do so.
 		return "", "", "", err
 	}
@@ -674,7 +681,7 @@ func getProcessInfo(pid int) (string, string, string, error) {
 		// getProcessCommandLine returns an empty string on a zombie process, so we use getProcessProgramName then.
 		name, err = getProcessProgramName(pid)
 		if err != nil {
-			// This is an utility function, so we do not call maybeSetExitCode(1) here
+			// This is an utility function, so we do not call maybeSetExitCode(exitDinitFailure) here
 			// but leave it to the caller to decide if and when to do so.
 			return "", "", "", err
 		}
@@ -698,12 +705,12 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
 			// it will just not do anything anymore.
 			return nil
 		}
-		maybeSetExitCode(1)
+		maybeSetExitCode(exitDinitFailure)
 		return err
 	}
 	jsonName, err := json.Marshal(name)
 	if err != nil {
-		maybeSetExitCode(1)
+		maybeSetExitCode(exitDinitFailure)
 		return err
 	}
 
@@ -721,7 +728,7 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
 			// The process does not exist anymore, nothing for us to do anymore.
 			return nil
 		}
-		maybeSetExitCode(1)
+		maybeSetExitCode(exitDinitFailure)
 		return err
 	}
 	if zombie {
@@ -757,7 +764,7 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
 				if errors.Is(err, os.ErrProcessDone) {
 					return nil
 				}
-				maybeSetExitCode(1)
+				maybeSetExitCode(exitDinitFailure)
 				return err
 			}
 
@@ -786,7 +793,7 @@ func doWait(p *os.Process, name, stage string) error {
 	var status syscall.WaitStatus
 	state, err := p.Wait()
 	if err != nil {
-		maybeSetExitCode(1)
+		maybeSetExitCode(exitDinitFailure)
 		return fmt.Errorf("%s/%s: error waiting for the process: %w", name, stage, err)
 	} else {
 		status = state.Sys().(syscall.WaitStatus)
@@ -812,7 +819,7 @@ func reparentingTerminate(_ context.Context, g *errgroup.Group, pid int) error {
 			// it will just not do anything anymore.
 			return nil
 		}
-		maybeSetExitCode(1)
+		maybeSetExitCode(exitDinitFailure)
 		return err
 	}
 
@@ -826,7 +833,7 @@ func reparentingTerminate(_ context.Context, g *errgroup.Group, pid int) error {
 			// The process does not exist anymore, nothing for us to do anymore.
 			return nil
 		}
-		maybeSetExitCode(1)
+		maybeSetExitCode(exitDinitFailure)
 		return err
 	}
 	if zombie {
@@ -850,7 +857,7 @@ func reparentingTerminate(_ context.Context, g *errgroup.Group, pid int) error {
 			if errors.Is(err, os.ErrProcessDone) {
 				return nil
 			}
-			maybeSetExitCode(1)
+			maybeSetExitCode(exitDinitFailure)
 			return err
 		}
 
@@ -877,7 +884,7 @@ func reparentingTerminate(_ context.Context, g *errgroup.Group, pid int) error {
 			if errors.Is(err, os.ErrProcessDone) {
 				return nil
 			}
-			maybeSetExitCode(1)
+			maybeSetExitCode(exitDinitFailure)
 			return err
 		}
 
