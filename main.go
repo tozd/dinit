@@ -608,6 +608,7 @@ func getProcessCommandLine(pid int) (string, error) {
 	return string(bytes.ReplaceAll(cmdlineData, []byte("\x00"), []byte(" "))), nil
 }
 
+// TODO: Should we use waitid with WEXITED|WNOHANG|WNOWAIT options?
 func isZombie(pid int) (bool, error) {
 	statPath := fmt.Sprintf("/proc/%d/stat", pid)
 	statData, err := os.ReadFile(statPath)
