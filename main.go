@@ -36,12 +36,13 @@ import (
 
 const etcService = "/etc/service"
 
-// If a process stays unknown for 2 intervals, reparenting policy is triggered for it.
+// We check for new reparented processes at a regular interval and trigger configured
+// reparenting policy on them. Reparenting also happens on SIGCHLD signal so interval
+// between reparenting checks can be shorter.
 // By default docker stop waits for 10 seconds before it kills processes if container
 // does not exit, so we want to detect any reparenting which might happen during shutdown
 // and have time to send those processes SIGTERM as well. This can happen multiple times
 // if terminating the first wave of reparented processes trigger another wave.
-// Reparenting also happens on SIGCHLD signal so interval between reparenting runs can be shorter.
 const reparentingInterval = time.Second
 
 // How long to wait after SIGTERM to send SIGKILL to a reparented process?
@@ -527,10 +528,10 @@ func processPid(ctx context.Context, g *errgroup.Group, policy policyFunc, pid i
 	processedPids[pid] = true
 	g.Go(func() error {
 		// We call removeProcessedPid to not have processedPids grow and grow.
-		// We can do this at this point and it will not make processPid misbehave if it is
-		// called multiple times on the same PID (of the same process), because both policy
-		// functions return when the associated process has finished and can be called
-		// without an issue with PID of a non-existing process (before PID gets reused).
+		// We can do this at this point and it will not make processPid misbehave if it is called
+		// multiple times on the same PID (of the same process), because policy functions return
+		// when the associated process has finished and can be called without an issue with PID
+		// of a non-existing process (before PID gets recycled though).
 		defer removeProcessedPid(pid)
 		return policy(ctx, g, pid)
 	})
@@ -551,7 +552,6 @@ func removeProcessedPid(pid int) {
 func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) {
 	// Processes get reparented to the main thread which has task ID matching PID.
 	childrenPath := fmt.Sprintf("/proc/%d/task/%d/children", mainPid, mainPid)
-	unknownPids := map[int]bool{}
 	done := ctx.Done()
 	sigchild := make(chan os.Signal, 1)
 	signal.Notify(sigchild, unix.SIGCHLD)
@@ -568,11 +568,6 @@ func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) {
 		case <-ticker.C:
 		}
 
-		for unknownPid := range unknownPids {
-			if hasRunningChildPid(unknownPid) {
-				delete(unknownPids, unknownPid)
-			}
-		}
 		childrenData, err := os.ReadFile(childrenPath)
 		if err != nil {
 			if !errors.Is(err, os.ErrNotExist) {
@@ -581,7 +576,6 @@ func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) {
 			continue
 		}
 		childrenPids := strings.Fields(string(childrenData))
-		newUnknownPids := map[int]bool{}
 		for _, childPid := range childrenPids {
 			p, err := strconv.Atoi(childPid)
 			if err != nil {
@@ -590,16 +584,11 @@ func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) {
 			}
 			if hasRunningChildPid(p) {
 				// This is our own child.
-			} else if unknownPids[p] {
-				// This is the second time we encounter this PID. We call configured policy.
-				processPid(ctx, g, policy, p)
 			} else {
-				// This is the first time we encounter this PID. We save it to check it again
-				// the next tick to give time that in meantime it gets stored in runningChildren.
-				newUnknownPids[p] = true
+				// Unknown PID. We call configured policy.
+				processPid(ctx, g, policy, p)
 			}
 		}
-		unknownPids = newUnknownPids
 	}
 }
 
