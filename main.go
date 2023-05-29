@@ -85,17 +85,6 @@ func init() {
 	mainContext, mainCancel = context.WithCancel(context.Background())
 }
 
-// TODO: Expire old entries.
-var reapedChildren = map[int]syscall.WaitStatus{}
-var reapedChildrenMu sync.RWMutex
-
-func getReapedChildWaitStatus(pid int) (syscall.WaitStatus, bool) {
-	reapedChildrenMu.RLock()
-	defer reapedChildrenMu.RUnlock()
-	status, ok := reapedChildren[pid]
-	return status, ok
-}
-
 var exitCode *int = nil
 var exitCodeMu sync.Mutex
 
@@ -151,7 +140,6 @@ func main() {
 		}
 	}
 
-	go handleSigChild()
 	go handleStopSignals()
 
 	g, ctx := errgroup.WithContext(mainContext)
@@ -185,57 +173,6 @@ func main() {
 	status := getExitCode()
 	logInfof("dinit exiting with status %d", status)
 	os.Exit(status)
-}
-
-func handleSigChild() {
-	// We cannot just set SIGCHLD to SIG_IGN for kernel to reap zombies (and all children) for us,
-	// because we have to store wait statuses for our own children.
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, unix.SIGCHLD)
-	for range c {
-		reapChildren()
-	}
-}
-
-func reapChildren() {
-	for {
-		stop := func() bool {
-			// We have to lock between wait call and updating reapedChildren so that it
-			// does not happen that we the wait call was successful, but we have not yet
-			// update the reapedChildren while another goroutine already failed in its
-			// wait call and attempted to read from reapedChildren, failing there as well.
-			reapedChildrenMu.Lock()
-			defer reapedChildrenMu.Unlock()
-
-			var status unix.WaitStatus
-			var pid int
-			var err error
-			for {
-				pid, err = unix.Wait4(-1, &status, unix.WNOHANG, nil)
-				if err == nil || !errors.Is(err, unix.EINTR) {
-					break
-				}
-			}
-			if errors.Is(err, unix.ECHILD) {
-				// We do not have any unwaited-for children.
-				return true
-			}
-			if err != nil || pid == 0 {
-				// There was some other error or call would block.
-				return true
-			}
-			if status.Exited() {
-				logInfof("reaped process with PID %d and status %d", pid, status.ExitStatus())
-			} else {
-				logInfof("reaped process with PID %d and signal %d", pid, status.Signal())
-			}
-			reapedChildren[pid] = syscall.WaitStatus(status)
-			return false
-		}()
-		if stop {
-			break
-		}
-	}
 }
 
 func handleStopSignals() {
@@ -406,14 +343,7 @@ func doWait(ctx context.Context, pid int, wait func() (*os.ProcessState, error),
 	var status syscall.WaitStatus
 	state, err := wait()
 	if err != nil {
-		if errors.Is(err, unix.ECHILD) {
-			s, ok := getReapedChildWaitStatus(pid)
-			if !ok {
-				maybeSetExitCode(1)
-				return fmt.Errorf("%s/%s: could not determine wait status", name, stage)
-			}
-			status = s
-		} else if errors.Is(err, context.Canceled) {
+		if errors.Is(err, context.Canceled) {
 			// If we are here, process finished successfully but the context has been canceled so err was set, so we just ignore the err.
 			status = state.Sys().(syscall.WaitStatus)
 		} else if state != nil && !state.Success() {
@@ -613,50 +543,61 @@ func removeProcessedPid(pid int) {
 	delete(processedPids, pid)
 }
 
-// We do not care about context cancellation. Even if the context is canceled we still
-// want to continue processing reparented processes (and terminating them as soon as possible).
+// Even if the context is canceled we still continue processing reparented processes,
+// but we force the policy to be reparentingTerminate to terminate reparented processes
+// as soon as possible.
 func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) {
 	// Processes get reparented to the main thread which has task ID matching PID.
 	childrenPath := fmt.Sprintf("/proc/%d/task/%d/children", os.Getpid(), os.Getpid())
 	unknownPids := map[int]bool{}
+	done := ctx.Done()
+	sigchild := make(chan os.Signal, 1)
+	signal.Notify(sigchild, unix.SIGCHLD)
 	ticker := time.NewTicker(reparentingInterval)
 	defer ticker.Stop()
 	for {
 		select {
+		case <-done:
+			// If the context is canceled, we just terminate any reparented process.
+			policy = reparentingTerminate
+			done = nil
+			continue
+		case <-sigchild:
 		case <-ticker.C:
-			for unknownPid := range unknownPids {
-				if hasRunningChildPid(unknownPid) {
-					delete(unknownPids, unknownPid)
-				}
+		}
+
+		for unknownPid := range unknownPids {
+			if hasRunningChildPid(unknownPid) {
+				delete(unknownPids, unknownPid)
 			}
-			childrenData, err := os.ReadFile(childrenPath)
+		}
+		childrenData, err := os.ReadFile(childrenPath)
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				logWarnf("unable to read process children from %s: %s", childrenPath, err)
+			}
+			continue
+		}
+		childrenPids := strings.Fields(string(childrenData))
+		newUnknownPids := map[int]bool{}
+		for _, childPid := range childrenPids {
+			p, err := strconv.Atoi(childPid)
 			if err != nil {
-				if !errors.Is(err, os.ErrNotExist) {
-					logWarnf("unable to read process children from %s: %s", childrenPath, err)
-				}
+				logWarnf("failed to parse PID %s: %s", childPid, err)
 				continue
 			}
-			childrenPids := strings.Fields(string(childrenData))
-			newUnknownPids := map[int]bool{}
-			for _, childPid := range childrenPids {
-				p, err := strconv.Atoi(childPid)
-				if err != nil {
-					logWarnf("failed to parse PID %s: %s", childPid, err)
-					continue
-				}
-				if hasRunningChildPid(p) {
-					// This is our own child.
-				} else if unknownPids[p] {
-					// This is the second time we encounter this PID. We call configured policy.
-					processPid(ctx, g, policy, p)
-				} else {
-					// This is the first time we encounter this PID. We save it to check it again
-					// the next tick to give time that in meantime it gets stored in runningChildren.
-					newUnknownPids[p] = true
-				}
+			if hasRunningChildPid(p) {
+				// This is our own child.
+			} else if unknownPids[p] {
+				// This is the second time we encounter this PID. We call configured policy.
+				processPid(ctx, g, policy, p)
+			} else {
+				// This is the first time we encounter this PID. We save it to check it again
+				// the next tick to give time that in meantime it gets stored in runningChildren.
+				newUnknownPids[p] = true
 			}
-			unknownPids = newUnknownPids
 		}
+		unknownPids = newUnknownPids
 	}
 }
 
@@ -860,17 +801,8 @@ func reparentingTerminate(_ context.Context, g *errgroup.Group, pid int) error {
 	var status syscall.WaitStatus
 	state, err := p.Wait()
 	if err != nil {
-		if errors.Is(err, unix.ECHILD) {
-			s, ok := getReapedChildWaitStatus(pid)
-			if !ok {
-				maybeSetExitCode(1)
-				return fmt.Errorf("%s/%s: could not determine wait status", name, stage)
-			}
-			status = s
-		} else {
-			maybeSetExitCode(1)
-			return fmt.Errorf("%s/%s: error waiting for the process: %w", name, stage, err)
-		}
+		maybeSetExitCode(1)
+		return fmt.Errorf("%s/%s: error waiting for the process: %w", name, stage, err)
 	} else {
 		status = state.Sys().(syscall.WaitStatus)
 	}
