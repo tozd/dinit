@@ -564,7 +564,7 @@ func removeProcessedPid(pid int) {
 // Even if the context is canceled we still continue processing reparented processes,
 // but we force the policy to be reparentingTerminate to terminate reparented processes
 // as soon as possible.
-func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) {
+func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) error {
 	// Processes get reparented to the main thread which has task ID matching PID.
 	childrenPath := fmt.Sprintf("/proc/%d/task/%d/children", mainPid, mainPid)
 	done := ctx.Done()
@@ -587,17 +587,16 @@ func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) {
 
 		childrenData, err := os.ReadFile(childrenPath)
 		if err != nil {
-			if !errors.Is(err, os.ErrNotExist) {
-				logWarnf("unable to read process children from %s: %s", childrenPath, err)
+			if errors.Is(err, os.ErrNotExist) {
+				continue
 			}
-			continue
+			return fmt.Errorf("unable to read process children from %s: %w", childrenPath, err)
 		}
 		childrenPids := strings.Fields(string(childrenData))
 		for _, childPid := range childrenPids {
 			p, err := strconv.Atoi(childPid)
 			if err != nil {
-				logWarnf("failed to parse PID %s: %s", childPid, err)
-				continue
+				return fmt.Errorf("failed to parse PID %s: %w", childPid, err)
 			}
 			if hasRunningChildPid(p) {
 				// This is our own child.

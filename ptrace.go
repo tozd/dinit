@@ -1007,8 +1007,7 @@ func replaceFdForProcess(pid int, from, to *os.File) error {
 	for _, entry := range entries {
 		fd, err := strconv.Atoi(entry.Name())
 		if err != nil {
-			logWarnf("failed to parse fd %s: %s", entry.Name(), err)
-			continue
+			return fmt.Errorf("failed to parse fd %s: %w", entry.Name(), err)
 		}
 		fds = append(fds, fd)
 	}
@@ -1040,8 +1039,7 @@ func equalFds(fd1, fd2 int) (bool, error) {
 func replaceFdForProcessAndChildren(pid int, name string, from, to *os.File) error {
 	eq, err := equalFds(int(from.Fd()), int(to.Fd()))
 	if err != nil {
-		logWarnf("unable to compare file descriptors: %s", err)
-		return nil
+		return fmt.Errorf("unable to compare file descriptors: %w", err)
 	}
 	if eq {
 		// Nothing to replace.
@@ -1056,27 +1054,26 @@ func replaceFdForProcessAndChildren(pid int, name string, from, to *os.File) err
 	taskPath := fmt.Sprintf("/proc/%d/task", pid)
 	entries, err := os.ReadDir(taskPath)
 	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			logWarnf("unable to read process tasks from %s: %s", taskPath, err)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
 		}
-		return nil
+		return fmt.Errorf("unable to read process tasks from %s: %w", taskPath, err)
 	}
 
 	for _, entry := range entries {
 		childrenPath := fmt.Sprintf("/proc/%d/task/%s/children", pid, entry.Name())
 		childrenData, err := os.ReadFile(childrenPath)
 		if err != nil {
-			if !errors.Is(err, os.ErrNotExist) {
-				logWarnf("unable to read process children from %s: %s", childrenPath, err)
+			if errors.Is(err, os.ErrNotExist) {
+				continue
 			}
-			return nil
+			return fmt.Errorf("unable to read process children from %s: %w", childrenPath, err)
 		}
 		childrenPids := strings.Fields(string(childrenData))
 		for _, childPid := range childrenPids {
 			p, err := strconv.Atoi(childPid)
 			if err != nil {
-				logWarnf("failed to parse PID %s: %s", childPid, err)
-				continue
+				return fmt.Errorf("failed to parse PID %s: %w", childPid, err)
 			}
 			err = replaceFdForProcessAndChildren(p, name, from, to)
 			if err != nil {
