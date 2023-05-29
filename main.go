@@ -93,12 +93,7 @@ var logErrorf = func(msg string, args ...any) {
 	log.Printf("dinit: error: "+msg, args...)
 }
 
-var mainContext context.Context
-var mainCancel context.CancelFunc
-
-func init() {
-	mainContext, mainCancel = context.WithCancel(context.Background())
-}
+var mainContext, mainCancel = context.WithCancel(context.Background())
 
 var mainPid = os.Getpid()
 
