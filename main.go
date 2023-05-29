@@ -709,7 +709,7 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
 		return err
 	}
 
-	logWarnf("adopting reparented child process with PID %d: %s", pid, cmdline)
+	logWarnf("%s/%s: adopting reparented child process with PID %d: %s", name, stage, pid, cmdline)
 
 	setRunningChildPid(pid)
 	defer removeRunningChildPid(pid)
@@ -768,7 +768,7 @@ func reparentingTerminate(_ context.Context, g *errgroup.Group, pid int) error {
 		return err
 	}
 
-	logWarnf("terminating reparented child process with PID %d: %s", pid, cmdline)
+	logWarnf("%s/%s: terminating reparented child process with PID %d: %s", name, stage, pid, cmdline)
 
 	p, _ := os.FindProcess(pid) // This call cannot fail.
 	done := make(chan struct{})
