@@ -158,9 +158,13 @@ func main() {
 
 	switch policy := os.Getenv("DINIT_REPARENTING_POLICY"); policy {
 	case "adopt":
-		go reparenting(ctx, g, reparentingAdopt)
+		g.Go(func() error {
+			return reparenting(ctx, g, reparentingAdopt)
+		})
 	case "terminate", "": // Default reparenting policy.
-		go reparenting(ctx, g, reparentingTerminate)
+		g.Go(func() error {
+			return reparenting(ctx, g, reparentingTerminate)
+		})
 	case "ignore":
 	default:
 		logErrorf("invalid reparenting policy %s", policy)
@@ -203,6 +207,13 @@ func handleStopSignals() {
 	}
 }
 
+// Wait group for all known running sub-processes. We have to make sure we do not call
+// errgroup's Add after its Wait has already stopped waiting. We do this by making sure
+// reparenting function only finishes once the context is canceled and there are no more
+// known running children.
+var knownRunningChildren = sync.WaitGroup{}
+
+// A map of running sub-processes we started or adopted.
 var runningChildren = map[int]bool{}
 var runningChildrenMu sync.RWMutex
 
@@ -387,6 +398,9 @@ func doRedirectAndWait(ctx context.Context, pid int, wait func() (*os.ProcessSta
 }
 
 func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error {
+	knownRunningChildren.Add(1)
+	defer knownRunningChildren.Done()
+
 	logInfof("%s/run: stopping", name)
 	r := path.Join(p, "stop")
 	cmd := exec.Command(r)
@@ -451,6 +465,9 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 }
 
 func runService(ctx context.Context, name, p string) error {
+	knownRunningChildren.Add(1)
+	defer knownRunningChildren.Done()
+
 	logInfof("%s/run: starting", name)
 	jsonName, err := json.Marshal(name)
 	if err != nil {
@@ -537,6 +554,9 @@ func processPid(ctx context.Context, g *errgroup.Group, policy policyFunc, pid i
 	}
 	processedPids[pid] = true
 	g.Go(func() error {
+		knownRunningChildren.Add(1)
+		defer knownRunningChildren.Done()
+
 		// We call removeProcessedPid to not have processedPids grow and grow.
 		// We can do this at this point and it will not make processPid misbehave if it is called
 		// multiple times on the same PID (of the same process), because policy functions return
@@ -556,25 +576,37 @@ func removeProcessedPid(pid int) {
 	delete(processedPids, pid)
 }
 
-// Even if the context is canceled we still continue processing reparented processes,
+// When the context is canceled we still continue processing reparented processes,
 // but we force the policy to be reparentingTerminate to terminate reparented processes
-// as soon as possible.
+// as soon as possible. The function itself returns only after the context has been
+// canceled and there is no known running children anymore.
 func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) error {
 	// Processes get reparented to the main thread which has task ID matching PID.
 	childrenPath := fmt.Sprintf("/proc/%d/task/%d/children", mainPid, mainPid)
-	done := ctx.Done()
+	knownRunningChildrenDone := make(chan struct{})
+	ctxDone := ctx.Done()
 	// It is OK if some SIGCHLD signal is missed because we are checking for reparented
 	// processes (and thus zombies as well) at a regular interval anyway.
 	sigchild := make(chan os.Signal, 1)
 	signal.Notify(sigchild, unix.SIGCHLD)
+	defer signal.Stop(sigchild)
 	ticker := time.NewTicker(reparentingInterval)
 	defer ticker.Stop()
 	for {
 		select {
-		case <-done:
+		case <-knownRunningChildrenDone:
+			// Context is canceled and there are no known running children anymore.
+			return ctx.Err()
+		case <-ctxDone:
 			// If the context is canceled, we just terminate any reparented process.
 			policy = reparentingTerminate
-			done = nil
+			// Disable this select case.
+			ctxDone = nil
+			// And start waiting for no more known running children.
+			go func() {
+				defer close(knownRunningChildrenDone)
+				knownRunningChildren.Wait()
+			}()
 			continue
 		case <-sigchild:
 		case <-ticker.C:
@@ -735,6 +767,9 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
 		logWarnf("%s/%s: adopting reparented child process with PID %d", name, stage, pid)
 	}
 
+	// knownRunningChildren is managed by the processPid function for all policies,
+	// runningChildren on the other hand is managed by policies themselves because
+	// not all policies set them (e.g., terminate does not, adopt does).
 	setRunningChildPid(pid)
 	defer removeRunningChildPid(pid)
 
