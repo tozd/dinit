@@ -179,6 +179,7 @@ func main() {
 }
 
 func handleStopSignals() {
+	// We do not handle SIGQUIT because that is handled specially by Go runtime.
 	c := make(chan os.Signal, 2)
 	signal.Notify(c, unix.SIGTERM, unix.SIGINT)
 	for s := range c {
