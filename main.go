@@ -617,12 +617,14 @@ func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) erro
 			if errors.Is(err, os.ErrNotExist) {
 				continue
 			}
+			maybeSetExitCode(exitDinitFailure)
 			return fmt.Errorf("unable to read process children from %s: %w", childrenPath, err)
 		}
 		childrenPids := strings.Fields(string(childrenData))
 		for _, childPid := range childrenPids {
 			p, err := strconv.Atoi(childPid)
 			if err != nil {
+				maybeSetExitCode(exitDinitFailure)
 				return fmt.Errorf("failed to parse PID %s: %w", childPid, err)
 			}
 			if hasRunningChildPid(p) {
@@ -635,6 +637,8 @@ func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) erro
 	}
 }
 
+// This is an utility function, so we do not call maybeSetExitCode(exitDinitFailure) on
+// errors but leave it to the caller to decide if and when to do so.
 func getProcessCommandLine(pid int) (string, error) {
 	cmdlinePath := fmt.Sprintf("/proc/%d/cmdline", pid)
 	cmdlineData, err := os.ReadFile(cmdlinePath)
@@ -642,13 +646,13 @@ func getProcessCommandLine(pid int) (string, error) {
 		if errors.Is(err, os.ErrNotExist) {
 			return "", os.ErrProcessDone
 		}
-		// This is an utility function, so we do not call maybeSetExitCode(exitDinitFailure) here
-		// but leave it to the caller to decide if and when to do so.
 		return "", err
 	}
 	return string(bytes.ReplaceAll(cmdlineData, []byte("\x00"), []byte(" "))), nil
 }
 
+// This is an utility function, so we do not call maybeSetExitCode(exitDinitFailure) on
+// errors but leave it to the caller to decide if and when to do so.
 // TODO: Should we use waitid with WEXITED|WNOHANG|WNOWAIT options?
 func isZombie(pid int) (bool, error) {
 	statPath := fmt.Sprintf("/proc/%d/stat", pid)
@@ -657,8 +661,6 @@ func isZombie(pid int) (bool, error) {
 		if errors.Is(err, os.ErrNotExist) {
 			return false, os.ErrProcessDone
 		}
-		// This is an utility function, so we do not call maybeSetExitCode(exitDinitFailure) here
-		// but leave it to the caller to decide if and when to do so.
 		return false, err
 	}
 	match := procStatRegexp.FindSubmatch(statData)
@@ -668,6 +670,8 @@ func isZombie(pid int) (bool, error) {
 	return string(match[2]) == "Z", nil
 }
 
+// This is an utility function, so we do not call maybeSetExitCode(exitDinitFailure) on
+// errors but leave it to the caller to decide if and when to do so.
 func getProcessProgramName(pid int) (string, error) {
 	statPath := fmt.Sprintf("/proc/%d/stat", pid)
 	statData, err := os.ReadFile(statPath)
@@ -675,8 +679,6 @@ func getProcessProgramName(pid int) (string, error) {
 		if errors.Is(err, os.ErrNotExist) {
 			return "", os.ErrProcessDone
 		}
-		// This is an utility function, so we do not call maybeSetExitCode(exitDinitFailure) here
-		// but leave it to the caller to decide if and when to do so.
 		return "", err
 	}
 	match := procStatRegexp.FindSubmatch(statData)
@@ -686,11 +688,11 @@ func getProcessProgramName(pid int) (string, error) {
 	return string(match[1]), nil
 }
 
+// This is an utility function, so we do not call maybeSetExitCode(exitDinitFailure) on
+// errors but leave it to the caller to decide if and when to do so.
 func getProcessInfo(pid int) (string, string, string, error) {
 	cmdline, err := getProcessCommandLine(pid)
 	if err != nil {
-		// This is an utility function, so we do not call maybeSetExitCode(exitDinitFailure) here
-		// but leave it to the caller to decide if and when to do so.
 		return "", "", "", err
 	}
 	name := ""
@@ -707,8 +709,6 @@ func getProcessInfo(pid int) (string, string, string, error) {
 		// getProcessCommandLine returns an empty string on a zombie process, so we use getProcessProgramName then.
 		name, err = getProcessProgramName(pid)
 		if err != nil {
-			// This is an utility function, so we do not call maybeSetExitCode(exitDinitFailure) here
-			// but leave it to the caller to decide if and when to do so.
 			return "", "", "", err
 		}
 	}
