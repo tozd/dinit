@@ -23,6 +23,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -40,10 +41,13 @@ const etcService = "/etc/service"
 // does not exit, so we want to detect any reparenting which might happen during shutdown
 // and have time to send those processes SIGTERM as well. This can happen multiple times
 // if terminating the first wave of reparented processes trigger another wave.
+// Reparenting also happens on SIGCHLD signal so interval between reparenting runs can be shorter.
 const reparentingInterval = time.Second
 
 // How long to wait after SIGTERM to send SIGKILL to a reparented process?
 const reparentingKillTimeout = 30 * time.Second
+
+var procStatRegexp = regexp.MustCompile(`\((.*)\)`)
 
 // TODO: Output milliseconds. See: https://github.com/golang/go/issues/60249
 const logFlags = log.Ldate | log.Ltime | log.LUTC
@@ -667,6 +671,21 @@ func getProcessCommandLine(pid int) (string, error) {
 	return string(bytes.ReplaceAll(cmdlineData, []byte("\x00"), []byte(" "))), nil
 }
 
+func getProcessProgramName(pid int) (string, error) {
+	statPath := fmt.Sprintf("/proc/%d/stat", pid)
+	statData, err := os.ReadFile(statPath)
+	if err != nil {
+		// This is an utility function, so we do not call maybeSetExitCode(1) here
+		// but leave it to the caller to decide if and when to do so.
+		return "", err
+	}
+	match := procStatRegexp.FindSubmatch(statData)
+	if len(match) != 2 {
+		return "", fmt.Errorf("could not match program name in proc stat: %s", statData)
+	}
+	return string(match[1]), nil
+}
+
 func getProcessInfo(pid int) (string, string, string, error) {
 	cmdline, err := getProcessCommandLine(pid)
 	if err != nil {
@@ -674,7 +693,7 @@ func getProcessInfo(pid int) (string, string, string, error) {
 		// but leave it to the caller to decide if and when to do so.
 		return "", "", "", err
 	}
-	name := "unknown"
+	name := ""
 	// Take the first (space delimited) part of the cmdline.
 	if fields := strings.Fields(cmdline); len(fields) > 0 {
 		name = fields[0]
@@ -683,6 +702,18 @@ func getProcessInfo(pid int) (string, string, string, error) {
 		if len(splitName) > 1 {
 			name = splitName[len(splitName)-1]
 		}
+	}
+	if name == "" {
+		// getProcessCommandLine returns an empty string on a zombie process, so we use getProcessProgramName then.
+		name, err = getProcessProgramName(pid)
+		if err != nil {
+			// This is an utility function, so we do not call maybeSetExitCode(1) here
+			// but leave it to the caller to decide if and when to do so.
+			return "", "", "", err
+		}
+	}
+	if name == "" {
+		name = "unknown"
 	}
 	// We misuse pid as stage to differentiate between multiple reparented processes with same command line.
 	stage := strconv.Itoa(pid)
@@ -709,7 +740,11 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
 		return err
 	}
 
-	logWarnf("%s/%s: adopting reparented child process with PID %d: %s", name, stage, pid, cmdline)
+	if cmdline != "" {
+		logWarnf("%s/%s: adopting reparented child process with PID %d: %s", name, stage, pid, cmdline)
+	} else {
+		logWarnf("%s/%s: adopting reparented child process with PID %d", name, stage, pid)
+	}
 
 	setRunningChildPid(pid)
 	defer removeRunningChildPid(pid)
@@ -768,7 +803,11 @@ func reparentingTerminate(_ context.Context, g *errgroup.Group, pid int) error {
 		return err
 	}
 
-	logWarnf("%s/%s: terminating reparented child process with PID %d: %s", name, stage, pid, cmdline)
+	if cmdline != "" {
+		logWarnf("%s/%s: terminating reparented child process with PID %d: %s", name, stage, pid, cmdline)
+	} else {
+		logWarnf("%s/%s: terminating reparented child process with PID %d", name, stage, pid)
+	}
 
 	p, _ := os.FindProcess(pid) // This call cannot fail.
 	done := make(chan struct{})
