@@ -31,9 +31,11 @@ import (
 	"os/signal"
 	"path"
 	"regexp"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -54,6 +56,8 @@ const reparentingInterval = time.Second
 // reparenting which might happen during shutdown and have time to send those processes
 // SIGTERM as well. This can happen multiple times if terminating the first wave of
 // reparented processes trigger another wave. So keep this under one second or so.
+// This is also approximately the time reparenting function waits before returning
+// after there is no more known running children.
 const reparentingStoppingInterval = reparentingInterval / 10
 
 // How long to wait after SIGTERM to send SIGKILL to a reparented process?
@@ -180,7 +184,7 @@ func main() {
 		return runServices(ctx, g)
 	})
 
-	// The assertion here is that once runServices and reparenting goroutines finish
+	// The assertion here is that once runServices and reparenting goroutines return
 	// (and any they additionally created while running), no more goroutines will be
 	// added to the g errgroup.
 	err := g.Wait()
@@ -214,11 +218,11 @@ func handleStopSignals() {
 	}
 }
 
-// Wait group for all known running sub-processes. We have to make sure we do not call
+// A counter of all known running sub-processes. We have to make sure we do not call
 // errgroup's Add after its Wait has already stopped waiting. We do this by making sure
-// reparenting function only finishes once the context is canceled and there are no more
+// reparenting function only returns once the context is canceled and there are no more
 // known running children.
-var knownRunningChildren = sync.WaitGroup{}
+var knownRunningChildren = atomic.Int32{}
 
 // A map of running sub-processes we started or adopted.
 var runningChildren = map[int]bool{}
@@ -273,7 +277,7 @@ func runServices(ctx context.Context, g *errgroup.Group) error {
 		}
 		knownRunningChildren.Add(1)
 		g.Go(func() error {
-			defer knownRunningChildren.Done()
+			defer knownRunningChildren.Add(-1)
 
 			return runService(ctx, g, name, p)
 		})
@@ -538,7 +542,7 @@ func runService(ctx context.Context, g *errgroup.Group, name, p string) error {
 	// We cancel the process if context is canceled.
 	knownRunningChildren.Add(1)
 	g.Go(func() error {
-		defer knownRunningChildren.Done()
+		defer knownRunningChildren.Add(-1)
 
 		select {
 		case <-ctx.Done():
@@ -576,7 +580,7 @@ func processPid(ctx context.Context, g *errgroup.Group, policy policyFunc, pid i
 	processedPids[pid] = true
 	knownRunningChildren.Add(1)
 	g.Go(func() error {
-		defer knownRunningChildren.Done()
+		defer knownRunningChildren.Add(-1)
 
 		// We call removeProcessedPid to not have processedPids grow and grow.
 		// We can do this at this point and it will not make processPid misbehave if it is called
@@ -604,7 +608,6 @@ func removeProcessedPid(pid int) {
 func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) error {
 	// Processes get reparented to the main thread which has task ID matching PID.
 	childrenPath := fmt.Sprintf("/proc/%d/task/%d/children", mainPid, mainPid)
-	knownRunningChildrenDone := make(chan struct{})
 	ctxDone := ctx.Done()
 	// It is OK if some SIGCHLD signal is missed because we are checking for reparented
 	// processes (and thus zombies as well) at a regular interval anyway.
@@ -615,9 +618,6 @@ func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) erro
 	defer ticker.Stop()
 	for {
 		select {
-		case <-knownRunningChildrenDone:
-			// Context is canceled and there are no known running children anymore.
-			return ctx.Err()
 		case <-ctxDone:
 			// If the context is canceled, we just terminate any reparented process.
 			policy = reparentingTerminate
@@ -625,11 +625,6 @@ func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) erro
 			ctxDone = nil
 			// Increase the rate at which we are checking for new reparented processes.
 			ticker.Reset(reparentingStoppingInterval)
-			// And start waiting for no more known running children.
-			go func() {
-				defer close(knownRunningChildrenDone)
-				knownRunningChildren.Wait()
-			}()
 			continue
 		case <-sigchild:
 		case <-ticker.C:
@@ -656,6 +651,13 @@ func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) erro
 				// Unknown PID. We call configured policy.
 				processPid(ctx, g, policy, p)
 			}
+		}
+
+		// The context is canceled, there is no more direct children and no more known running children. Return.
+		// It is important that we return only after the context is canceled so that we give time for runServices
+		// to do its job and not return before services even start.
+		if ctx.Err() != nil && len(childrenPids) == 0 && knownRunningChildren.Load() == 0 {
+			return ctx.Err()
 		}
 	}
 }
