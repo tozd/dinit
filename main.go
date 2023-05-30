@@ -176,6 +176,9 @@ func main() {
 		return runServices(ctx, g)
 	})
 
+	// The assertion here is that once runServices and reparenting goroutines finish
+	// (and any they additionally created while running), no more goroutines will be
+	// added to the g errgroup.
 	err := g.Wait()
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -264,8 +267,11 @@ func runServices(ctx context.Context, g *errgroup.Group) error {
 		if !info.IsDir() {
 			continue
 		}
+		knownRunningChildren.Add(1)
 		g.Go(func() error {
-			return runService(ctx, name, p)
+			defer knownRunningChildren.Done()
+
+			return runService(ctx, g, name, p)
 		})
 		found = true
 	}
@@ -398,9 +404,6 @@ func doRedirectAndWait(ctx context.Context, pid int, wait func() (*os.ProcessSta
 }
 
 func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error {
-	knownRunningChildren.Add(1)
-	defer knownRunningChildren.Done()
-
 	logInfof("%s/run: stopping", name)
 	r := path.Join(p, "stop")
 	cmd := exec.Command(r)
@@ -464,10 +467,7 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 	}, "stop", name, jsonName, stdout, stderr)
 }
 
-func runService(ctx context.Context, name, p string) error {
-	knownRunningChildren.Add(1)
-	defer knownRunningChildren.Done()
-
+func runService(ctx context.Context, g *errgroup.Group, name, p string) error {
 	logInfof("%s/run: starting", name)
 	jsonName, err := json.Marshal(name)
 	if err != nil {
@@ -475,11 +475,10 @@ func runService(ctx context.Context, name, p string) error {
 		return err
 	}
 	r := path.Join(p, "run")
-	cmd := exec.CommandContext(ctx, r)
+	// We do not use CommandContext here because we want to run stopService
+	// inside the errgroup and count it with knownRunningChildren.
+	cmd := exec.Command(r)
 	cmd.Dir = p
-	cmd.Cancel = func() error {
-		return stopService(cmd, name, jsonName, p)
-	}
 
 	// We do not use StdoutPipe and StderrPipe so that we can control when pipe is closed.
 	// See: https://github.com/golang/go/issues/60309
@@ -529,6 +528,24 @@ func runService(ctx context.Context, name, p string) error {
 
 	logInfof("%s/run: running with PID %d", name, cmd.Process.Pid)
 
+	done := make(chan struct{})
+	defer close(done)
+
+	// We cancel the process if context is canceled.
+	knownRunningChildren.Add(1)
+	g.Go(func() error {
+		defer knownRunningChildren.Done()
+
+		select {
+		case <-ctx.Done():
+			return stopService(cmd, name, jsonName, p)
+		case <-done:
+			// The process finished or there was an error waiting for it.
+			// In any case we do not have anything to do anymore.
+			return nil
+		}
+	})
+
 	return doRedirectAndWait(ctx, cmd.Process.Pid, func() (*os.ProcessState, error) {
 		err := cmd.Wait()
 		return cmd.ProcessState, err
@@ -553,8 +570,8 @@ func processPid(ctx context.Context, g *errgroup.Group, policy policyFunc, pid i
 		return
 	}
 	processedPids[pid] = true
+	knownRunningChildren.Add(1)
 	g.Go(func() error {
-		knownRunningChildren.Add(1)
 		defer knownRunningChildren.Done()
 
 		// We call removeProcessedPid to not have processedPids grow and grow.
