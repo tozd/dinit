@@ -46,11 +46,15 @@ const etcService = "/etc/service"
 // We check for new reparented processes at a regular interval and trigger configured
 // reparenting policy on them. Reparenting also happens on SIGCHLD signal so interval
 // between reparenting checks can be shorter.
-// By default docker stop waits for 10 seconds before it kills processes if container
-// does not exit, so we want to detect any reparenting which might happen during shutdown
-// and have time to send those processes SIGTERM as well. This can happen multiple times
-// if terminating the first wave of reparented processes trigger another wave.
 const reparentingInterval = time.Second
+
+// When dinit is stopping (the context is canceled) we increase the rate at which we
+// check for new reparented processes. By default docker stop waits for 10 seconds
+// before it kills processes if container does not exit, so we want to detect any
+// reparenting which might happen during shutdown and have time to send those processes
+// SIGTERM as well. This can happen multiple times if terminating the first wave of
+// reparented processes trigger another wave. So keep this under one second or so.
+const reparentingStoppingInterval = reparentingInterval / 10
 
 // How long to wait after SIGTERM to send SIGKILL to a reparented process?
 const reparentingKillTimeout = 30 * time.Second
@@ -619,6 +623,8 @@ func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) erro
 			policy = reparentingTerminate
 			// Disable this select case.
 			ctxDone = nil
+			// Increase the rate at which we are checking for new reparented processes.
+			ticker.Reset(reparentingStoppingInterval)
 			// And start waiting for no more known running children.
 			go func() {
 				defer close(knownRunningChildrenDone)
