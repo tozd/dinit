@@ -663,7 +663,11 @@ func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) erro
 		// The context is canceled, there is no more direct children and no more known running children. Return.
 		// It is important that we return only after the context is canceled so that we give time for runServices
 		// to do its job and not return before services even start.
-		if ctx.Err() != nil && len(childrenPids) == 0 && knownRunningChildren.Load() == 0 {
+		k := knownRunningChildren.Load()
+		if k < 0 {
+			panic(errors.New("negative known running children count"))
+		}
+		if ctx.Err() != nil && len(childrenPids) == 0 && k == 0 {
 			return ctx.Err()
 		}
 	}
