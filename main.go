@@ -232,9 +232,11 @@ var knownRunningChildren = atomic.Int32{}
 var runningChildren = map[int]bool{}
 var runningChildrenMu sync.RWMutex
 
-func setRunningChildPid(pid int) {
-	runningChildrenMu.Lock()
-	defer runningChildrenMu.Unlock()
+func setRunningChildPid(pid int, lock bool) {
+	if lock {
+		runningChildrenMu.Lock()
+		defer runningChildrenMu.Unlock()
+	}
 	if runningChildren[pid] {
 		panic(errors.New("setting running child PID which already exists"))
 	}
@@ -254,6 +256,24 @@ func hasRunningChildPid(pid int) bool {
 	runningChildrenMu.RLock()
 	defer runningChildrenMu.RUnlock()
 	return runningChildren[pid]
+}
+
+// We have to wrap every cmd.Start with the runningChildrenMu mutex so that we do not check for the
+// running child pid in reparenting while we are starting a new command. Otherwise we might start processing
+// a new child process in reparenting before cmd.Start returns (but after the process is already created)
+// and before we set the running child pid. If this function returns without an error, a caller should
+// call removeRunningChildPid when the process finishes.
+func cmdRun(cmd *exec.Cmd) error {
+	runningChildrenMu.Lock()
+	defer runningChildrenMu.Unlock()
+
+	err := cmd.Start()
+
+	if err == nil {
+		setRunningChildPid(cmd.Process.Pid, false)
+	}
+
+	return err
 }
 
 func runServices(ctx context.Context, g *errgroup.Group) error {
@@ -438,7 +458,10 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 	}
 	cmd.Stderr = stderrWriter
 
-	err = cmd.Start()
+	err = cmdRun(cmd)
+	if err == nil {
+		defer removeRunningChildPid(cmd.Process.Pid)
+	}
 
 	// The child process has inherited the pipe file, so close the copy held in this process.
 	stdoutWriter.Close()
@@ -469,8 +492,6 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 		maybeSetExitCode(exitDinitFailure, err)
 		return err
 	}
-	setRunningChildPid(cmd.Process.Pid)
-	defer removeRunningChildPid(cmd.Process.Pid)
 
 	logInfof("%s/stop: running with PID %d", name, cmd.Process.Pid)
 
@@ -513,7 +534,10 @@ func runService(ctx context.Context, g *errgroup.Group, name, p string) error {
 	}
 	cmd.Stderr = stderrWriter
 
-	err = cmd.Start()
+	err = cmdRun(cmd)
+	if err == nil {
+		defer removeRunningChildPid(cmd.Process.Pid)
+	}
 
 	// The child process has inherited the pipe file, so close the copy held in this process.
 	stdoutWriter.Close()
@@ -533,8 +557,7 @@ func runService(ctx context.Context, g *errgroup.Group, name, p string) error {
 		}
 		return err
 	}
-	setRunningChildPid(cmd.Process.Pid)
-	defer removeRunningChildPid(cmd.Process.Pid)
+
 	// When the service stops (which is when this function returns)
 	// we stop all other services as well and exit ourselves.
 	defer mainCancel()
@@ -803,10 +826,12 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
 		logWarnf("%s/%s: adopting reparented child process with PID %d", name, stage, pid)
 	}
 
-	// knownRunningChildren is managed by the processPid function for all policies,
-	// runningChildren on the other hand is managed by policies themselves because
-	// not all policies set them (e.g., terminate does not, adopt does).
-	setRunningChildPid(pid)
+	// knownRunningChildren is managed by the processPid function for all policies, runningChildren on
+	// the other hand is managed by policies themselves because not all policies set them (e.g., terminate
+	// does not, adopt does). It is not critical when setRunningChildPid is called because the whole
+	// processPid is protected by the processedPids map and while this policy function is running
+	// the process' pid cannot be processed again in reparenting.
+	setRunningChildPid(pid, true)
 	defer removeRunningChildPid(pid)
 
 	stdout, stderr, err := ptraceRedirectStdoutStderr(pid)
