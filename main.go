@@ -112,7 +112,7 @@ var mainPid = os.Getpid()
 var exitCode *int = nil
 var exitCodeMu sync.Mutex
 
-func maybeSetExitCode(code int) {
+func maybeSetExitCode(code int, err error) {
 	exitCodeMu.Lock()
 	defer exitCodeMu.Unlock()
 	if exitCode == nil {
@@ -196,8 +196,8 @@ func main() {
 		if errors.Is(err, context.Canceled) {
 			// Nothing.
 		} else {
-			maybeSetExitCode(exitDinitFailure)
-			logError(err)
+			maybeSetExitCode(exitDinitFailure, nil)
+			logErrorf("exiting: %s", err)
 		}
 	}
 
@@ -216,7 +216,7 @@ func handleStopSignals() {
 		} else {
 			logInfof("got signal %d, stopping children", s)
 			// Even if children complain being terminated, we still exit with 0.
-			maybeSetExitCode(exitSuccess)
+			maybeSetExitCode(exitSuccess, nil)
 			mainCancel()
 		}
 	}
@@ -259,7 +259,7 @@ func hasRunningChildPid(pid int) bool {
 func runServices(ctx context.Context, g *errgroup.Group) error {
 	entries, err := os.ReadDir(etcService)
 	if err != nil {
-		maybeSetExitCode(exitDinitFailure)
+		maybeSetExitCode(exitDinitFailure, err)
 		return err
 	}
 	found := false
@@ -272,7 +272,7 @@ func runServices(ctx context.Context, g *errgroup.Group) error {
 		p := path.Join(etcService, name)
 		info, err := os.Stat(p)
 		if err != nil {
-			maybeSetExitCode(exitDinitFailure)
+			maybeSetExitCode(exitDinitFailure, err)
 			return err
 		}
 		// We skip anything which is not a directory.
@@ -392,8 +392,9 @@ func doRedirectAndWait(ctx context.Context, pid int, wait func() (*os.ProcessSta
 			// This is a condition in Wait when err is set when process fails, so we just ignore the err.
 			status = state.Sys().(syscall.WaitStatus)
 		} else {
-			maybeSetExitCode(exitDinitFailure)
-			return fmt.Errorf("%s/%s: error waiting for the process: %w", name, stage, err)
+			err = fmt.Errorf("%s/%s: error waiting for the process: %w", name, stage, err)
+			maybeSetExitCode(exitDinitFailure, err)
+			return err
 		}
 	} else {
 		status = state.Sys().(syscall.WaitStatus)
@@ -401,13 +402,13 @@ func doRedirectAndWait(ctx context.Context, pid int, wait func() (*os.ProcessSta
 
 	if status.Exited() {
 		if status.ExitStatus() != 0 {
-			maybeSetExitCode(exitServiceFailure)
+			maybeSetExitCode(exitServiceFailure, nil)
 		}
 		logInfof("%s/%s: PID %d finished with status %d", name, stage, pid, status.ExitStatus())
 	} else {
 		// If process finished because of the signal but we have not been stopping it, we see it is as a process error.
 		if ctx == nil || ctx.Err() == nil {
-			maybeSetExitCode(exitServiceFailure)
+			maybeSetExitCode(exitServiceFailure, nil)
 		}
 		logInfof("%s/%s: PID %d finished with signal %d", name, stage, pid, status.Signal())
 	}
@@ -426,13 +427,13 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 	// See: https://go-review.googlesource.com/c/tools/+/484741
 	stdout, stdoutWriter, err := os.Pipe()
 	if err != nil {
-		maybeSetExitCode(exitDinitFailure)
+		maybeSetExitCode(exitDinitFailure, err)
 		return err
 	}
 	cmd.Stdout = stdoutWriter
 	stderr, stderrWriter, err := os.Pipe()
 	if err != nil {
-		maybeSetExitCode(exitDinitFailure)
+		maybeSetExitCode(exitDinitFailure, err)
 		return err
 	}
 	cmd.Stderr = stderrWriter
@@ -459,13 +460,13 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 				if processNotExist(err) {
 					return nil
 				}
-				maybeSetExitCode(exitDinitFailure)
+				maybeSetExitCode(exitDinitFailure, err)
 				return err
 			}
 
 			return nil
 		}
-		maybeSetExitCode(exitDinitFailure)
+		maybeSetExitCode(exitDinitFailure, err)
 		return err
 	}
 	setRunningChildPid(cmd.Process.Pid)
@@ -483,7 +484,7 @@ func runService(ctx context.Context, g *errgroup.Group, name, p string) error {
 	logInfof("%s/run: starting", name)
 	jsonName, err := json.Marshal(name)
 	if err != nil {
-		maybeSetExitCode(exitDinitFailure)
+		maybeSetExitCode(exitDinitFailure, err)
 		return err
 	}
 	r := path.Join(p, "run")
@@ -497,7 +498,7 @@ func runService(ctx context.Context, g *errgroup.Group, name, p string) error {
 	// See: https://go-review.googlesource.com/c/tools/+/484741
 	stdout, stdoutWriter, err := os.Pipe()
 	if err != nil {
-		maybeSetExitCode(exitDinitFailure)
+		maybeSetExitCode(exitDinitFailure, err)
 		return err
 	}
 	cmd.Stdout = stdoutWriter
@@ -507,7 +508,7 @@ func runService(ctx context.Context, g *errgroup.Group, name, p string) error {
 		stdout.Close()
 		stdoutWriter.Close()
 
-		maybeSetExitCode(exitDinitFailure)
+		maybeSetExitCode(exitDinitFailure, err)
 		return err
 	}
 	cmd.Stderr = stderrWriter
@@ -528,7 +529,7 @@ func runService(ctx context.Context, g *errgroup.Group, name, p string) error {
 		// Start can fail when context is canceled, but we do not want to set
 		// the exit code because of the cancellation.
 		if !errors.Is(err, context.Canceled) {
-			maybeSetExitCode(exitDinitFailure)
+			maybeSetExitCode(exitDinitFailure, err)
 		}
 		return err
 	}
@@ -639,15 +640,17 @@ func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) erro
 			if processNotExist(err) {
 				continue
 			}
-			maybeSetExitCode(exitDinitFailure)
-			return fmt.Errorf("unable to read process children from %s: %w", childrenPath, err)
+			err = fmt.Errorf("unable to read process children from %s: %w", childrenPath, err)
+			maybeSetExitCode(exitDinitFailure, err)
+			return err
 		}
 		childrenPids := strings.Fields(string(childrenData))
 		for _, childPid := range childrenPids {
 			p, err := strconv.Atoi(childPid)
 			if err != nil {
-				maybeSetExitCode(exitDinitFailure)
-				return fmt.Errorf("failed to parse PID %s: %w", childPid, err)
+				err = fmt.Errorf("failed to parse PID %s: %w", childPid, err)
+				maybeSetExitCode(exitDinitFailure, err)
+				return err
 			}
 			if hasRunningChildPid(p) {
 				// This is our own child.
@@ -760,12 +763,12 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
 			// it will just not do anything anymore.
 			return nil
 		}
-		maybeSetExitCode(exitDinitFailure)
+		maybeSetExitCode(exitDinitFailure, err)
 		return err
 	}
 	jsonName, err := json.Marshal(name)
 	if err != nil {
-		maybeSetExitCode(exitDinitFailure)
+		maybeSetExitCode(exitDinitFailure, err)
 		return err
 	}
 
@@ -783,7 +786,7 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
 			// The process does not exist anymore, nothing for us to do anymore.
 			return nil
 		}
-		maybeSetExitCode(exitDinitFailure)
+		maybeSetExitCode(exitDinitFailure, err)
 		return err
 	}
 	if zombie {
@@ -822,7 +825,7 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
 				if processNotExist(err) {
 					return nil
 				}
-				maybeSetExitCode(exitDinitFailure)
+				maybeSetExitCode(exitDinitFailure, err)
 				return err
 			}
 
@@ -851,8 +854,9 @@ func doWait(p *os.Process, name, stage string) error {
 	var status syscall.WaitStatus
 	state, err := p.Wait()
 	if err != nil {
-		maybeSetExitCode(exitDinitFailure)
-		return fmt.Errorf("%s/%s: error waiting for the process: %w", name, stage, err)
+		err = fmt.Errorf("%s/%s: error waiting for the process: %w", name, stage, err)
+		maybeSetExitCode(exitDinitFailure, err)
+		return err
 	} else {
 		status = state.Sys().(syscall.WaitStatus)
 	}
@@ -877,7 +881,7 @@ func reparentingTerminate(_ context.Context, g *errgroup.Group, pid int) error {
 			// it will just not do anything anymore.
 			return nil
 		}
-		maybeSetExitCode(exitDinitFailure)
+		maybeSetExitCode(exitDinitFailure, err)
 		return err
 	}
 
@@ -891,7 +895,7 @@ func reparentingTerminate(_ context.Context, g *errgroup.Group, pid int) error {
 			// The process does not exist anymore, nothing for us to do anymore.
 			return nil
 		}
-		maybeSetExitCode(exitDinitFailure)
+		maybeSetExitCode(exitDinitFailure, err)
 		return err
 	}
 	if zombie {
@@ -915,7 +919,7 @@ func reparentingTerminate(_ context.Context, g *errgroup.Group, pid int) error {
 			if processNotExist(err) {
 				return nil
 			}
-			maybeSetExitCode(exitDinitFailure)
+			maybeSetExitCode(exitDinitFailure, err)
 			return err
 		}
 
@@ -942,7 +946,7 @@ func reparentingTerminate(_ context.Context, g *errgroup.Group, pid int) error {
 			if processNotExist(err) {
 				return nil
 			}
-			maybeSetExitCode(exitDinitFailure)
+			maybeSetExitCode(exitDinitFailure, err)
 			return err
 		}
 
