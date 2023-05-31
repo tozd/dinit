@@ -1048,7 +1048,11 @@ func replaceFdForProcessAndChildren(pid int, name string, from, to *os.File) err
 
 	err = replaceFdForProcess(pid, from, to)
 	if err != nil {
-		logWarnf("error replacing %s fd for process with PID %d: %s", name, pid, err)
+		if debugLog {
+			logWarnf("error replacing %s fd for process with PID %d: %+v", name, pid, err)
+		} else {
+			logWarnf("error replacing %s fd for process with PID %d: %s", name, pid, err)
+		}
 	}
 
 	taskPath := fmt.Sprintf("/proc/%d/task", pid)

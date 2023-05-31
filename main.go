@@ -77,6 +77,16 @@ const logFlags = log.Ldate | log.Ltime | log.LUTC
 
 type policyFunc = func(ctx context.Context, g *errgroup.Group, pid int) error
 
+var debugLog = false
+
+var logDebug = func(msg any) {
+	log.Printf("dinit: debug: %s", msg)
+}
+
+var logDebugf = func(msg string, args ...any) {
+	log.Printf("dinit: debug: "+msg, args...)
+}
+
 var logInfo = func(msg any) {
 	log.Printf("dinit: info: %s", msg)
 }
@@ -118,6 +128,13 @@ func maybeSetExitCode(code int, err error) {
 	if exitCode == nil {
 		exitCode = &code
 	}
+	if debugLog && code == exitDinitFailure {
+		if err != nil {
+			logDebugf("setting exit code to %d at:\n%s\ncaused by the error: %+v", code, debug.Stack(), err)
+		} else {
+			logDebugf("setting exit code to %d at:\n%s", code, debug.Stack())
+		}
+	}
 }
 
 func getExitCode() int {
@@ -148,7 +165,10 @@ func main() {
 		logInfof = func(msg string, args ...any) {}
 		fallthrough
 	case "info":
-		// Nothing.
+		logDebug = func(msg any) {}
+		logDebugf = func(msg string, args ...any) {}
+	case "debug":
+		debugLog = true
 	default:
 		logErrorf("invalid log level %s", level)
 		os.Exit(exitDinitFailure)
@@ -159,7 +179,7 @@ func main() {
 		// We are not running as PID 1 so we register ourselves as a process subreaper.
 		_, _, errno := unix.RawSyscall(unix.SYS_PRCTL, unix.PR_SET_CHILD_SUBREAPER, 1, 0)
 		if errno != 0 {
-			logError(errno)
+			logErrorf("exiting: %s", errno)
 			os.Exit(exitDinitFailure)
 		}
 	}
@@ -197,7 +217,11 @@ func main() {
 			// Nothing.
 		} else {
 			maybeSetExitCode(exitDinitFailure, nil)
-			logErrorf("exiting: %s", err)
+			if debugLog {
+				logErrorf("exiting: %+v", err)
+			} else {
+				logErrorf("exiting: %s", err)
+			}
 		}
 	}
 
@@ -836,7 +860,11 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
 
 	stdout, stderr, err := ptraceRedirectStdoutStderr(pid)
 	if err != nil {
-		logWarnf("%s/%s: error redirecting stdout and stderr: %s", name, stage, err)
+		if debugLog {
+			logWarnf("%s/%s: error redirecting stdout and stderr: %+v", name, stage, err)
+		} else {
+			logWarnf("%s/%s: error redirecting stdout and stderr: %s", name, stage, err)
+		}
 	}
 
 	done := make(chan struct{})
