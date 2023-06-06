@@ -471,9 +471,9 @@ func doRedirectAndWait(ctx context.Context, pid int, wait func() (*os.ProcessSta
 	return nil
 }
 
-func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) errors.E {
-	logInfof("%s/run: stopping", name)
-	r := path.Join(p, "stop")
+func finishService(runCmd *exec.Cmd, name string, jsonName []byte, p string) errors.E {
+	logInfof("%s/run: finishing", name)
+	r := path.Join(p, "finish")
 	cmd := exec.Command(r)
 	cmd.Dir = p
 
@@ -511,7 +511,7 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 		stdout.Close()
 		stderr.Close()
 
-		// If stop program does not exist, we send SIGTERM instead.
+		// If finish program does not exist, we send SIGTERM instead.
 		if errors.Is(err, os.ErrNotExist) {
 			logInfof("%s/run: sending SIGTERM to PID %d", name, runCmd.Process.Pid)
 
@@ -531,12 +531,12 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 		return err
 	}
 
-	logInfof("%s/stop: running with PID %d", name, cmd.Process.Pid)
+	logInfof("%s/finish: running with PID %d", name, cmd.Process.Pid)
 
 	return doRedirectAndWait(nil, cmd.Process.Pid, func() (*os.ProcessState, errors.E) {
 		err := errors.WithStack(cmd.Wait())
 		return cmd.ProcessState, err
-	}, "stop", name, jsonName, stdout, stderr)
+	}, "finish", name, jsonName, stdout, stderr)
 }
 
 func runService(ctx context.Context, g *errgroup.Group, name, p string) errors.E {
@@ -548,7 +548,7 @@ func runService(ctx context.Context, g *errgroup.Group, name, p string) errors.E
 		return err
 	}
 	r := path.Join(p, "run")
-	// We do not use CommandContext here because we want to run stopService
+	// We do not use CommandContext here because we want to run finishService
 	// inside the errgroup and count it with knownRunningChildren.
 	cmd := exec.Command(r)
 	cmd.Dir = p
@@ -599,8 +599,8 @@ func runService(ctx context.Context, g *errgroup.Group, name, p string) errors.E
 		return err
 	}
 
-	// When the service stops (which is when this function returns)
-	// we stop all other services as well and exit ourselves.
+	// When the service finishes (which is when this function returns)
+	// we finish all other services as well and exit ourselves.
 	defer mainCancel()
 
 	logInfof("%s/run: running with PID %d", name, cmd.Process.Pid)
@@ -615,7 +615,7 @@ func runService(ctx context.Context, g *errgroup.Group, name, p string) errors.E
 
 		select {
 		case <-ctx.Done():
-			return stopService(cmd, name, jsonName, p)
+			return finishService(cmd, name, jsonName, p)
 		case <-done:
 			// The process finished or there was an error waiting for it.
 			// In any case we do not have anything to do anymore.
@@ -892,7 +892,7 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) errors.E 
 	g.Go(func() error {
 		select {
 		case <-ctx.Done():
-			logInfof("%s/%s: stopping", name, stage)
+			logInfof("%s/%s: finishing", name, stage)
 			logInfof("%s/%s: sending SIGTERM to PID %d", name, stage, pid)
 
 			e := p.Signal(unix.SIGTERM)
