@@ -30,7 +30,7 @@ import (
 	"os/signal"
 	"path"
 	"regexp"
-	"runtime/debug"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -122,6 +122,13 @@ var mainPid = os.Getpid()
 var exitCode *int = nil
 var exitCodeMu sync.Mutex
 
+func callers() []uintptr {
+	const depth = 32
+	var pcs [depth]uintptr
+	n := runtime.Callers(3, pcs[:]) //nolint:gomnd
+	return pcs[0:n]
+}
+
 func maybeSetExitCode(code int, err errors.E) {
 	exitCodeMu.Lock()
 	defer exitCodeMu.Unlock()
@@ -129,10 +136,12 @@ func maybeSetExitCode(code int, err errors.E) {
 		exitCode = &code
 	}
 	if debugLog && code == exitDinitFailure {
+		buf := &strings.Builder{}
+		_, _ = errors.StackFormat(buf, "%+v", callers())
 		if err != nil {
-			logDebugf("setting exit code to %d at:\n%s\ncaused by the error: %+v", code, debug.Stack(), err)
+			logDebugf("setting exit code to %d at (most recent call first):\n%s\ncaused by the error:\n\n%+v", code, buf.String(), err)
 		} else {
-			logDebugf("setting exit code to %d at:\n%s", code, debug.Stack())
+			logDebugf("setting exit code to %d at (most recent call first):\n%s", code, buf.String())
 		}
 	}
 }
