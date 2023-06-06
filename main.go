@@ -22,7 +22,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -39,6 +38,7 @@ import (
 	"syscall"
 	"time"
 
+	"gitlab.com/tozd/go/errors"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
 )
@@ -75,7 +75,7 @@ var procStatRegexp = regexp.MustCompile(`\((.*)\) (.)`)
 // TODO: Output milliseconds. See: https://github.com/golang/go/issues/60249
 const logFlags = log.Ldate | log.Ltime | log.LUTC
 
-type policyFunc = func(ctx context.Context, g *errgroup.Group, pid int) error
+type policyFunc = func(ctx context.Context, g *errgroup.Group, pid int) errors.E
 
 var debugLog = false
 
@@ -122,7 +122,7 @@ var mainPid = os.Getpid()
 var exitCode *int = nil
 var exitCodeMu sync.Mutex
 
-func maybeSetExitCode(code int, err error) {
+func maybeSetExitCode(code int, err errors.E) {
 	exitCodeMu.Lock()
 	defer exitCodeMu.Unlock()
 	if exitCode == nil {
@@ -211,7 +211,7 @@ func main() {
 	// The assertion here is that once runServices and reparenting goroutines return
 	// (and any they additionally created while running), no more goroutines will be
 	// added to the g errgroup.
-	err := g.Wait()
+	err := errors.WithStack(g.Wait())
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			// Nothing.
@@ -287,11 +287,11 @@ func hasRunningChildPid(pid int) bool {
 // a new child process in reparenting before cmd.Start returns (but after the process is already created)
 // and before we set the running child pid. If this function returns without an error, a caller should
 // call removeRunningChildPid when the process finishes.
-func cmdRun(cmd *exec.Cmd) error {
+func cmdRun(cmd *exec.Cmd) errors.E {
 	runningChildrenMu.Lock()
 	defer runningChildrenMu.Unlock()
 
-	err := cmd.Start()
+	err := errors.WithStack(cmd.Start())
 
 	if err == nil {
 		setRunningChildPid(cmd.Process.Pid, false)
@@ -300,9 +300,10 @@ func cmdRun(cmd *exec.Cmd) error {
 	return err
 }
 
-func runServices(ctx context.Context, g *errgroup.Group) error {
-	entries, err := os.ReadDir(etcService)
-	if err != nil {
+func runServices(ctx context.Context, g *errgroup.Group) errors.E {
+	entries, e := os.ReadDir(etcService)
+	if e != nil {
+		err := errors.WithStack(e)
 		maybeSetExitCode(exitDinitFailure, err)
 		return err
 	}
@@ -314,8 +315,9 @@ func runServices(ctx context.Context, g *errgroup.Group) error {
 			continue
 		}
 		p := path.Join(etcService, name)
-		info, err := os.Stat(p)
-		if err != nil {
+		info, e := os.Stat(p)
+		if e != nil {
+			err := errors.WithStack(e)
 			maybeSetExitCode(exitDinitFailure, err)
 			return err
 		}
@@ -352,10 +354,10 @@ func redirectToLogWithPrefix(l *log.Logger, stage, name, input string, reader io
 		}
 	}
 
-	err := scanner.Err()
+	e := scanner.Err()
 	// Reader can get closed and we ignore that.
-	if err != nil && !errors.Is(err, os.ErrClosed) {
-		logWarnf("%s/%s: error reading %s: %s", name, stage, input, err)
+	if e != nil && !errors.Is(e, os.ErrClosed) {
+		logWarnf("%s/%s: error reading %s: %s", name, stage, input, e)
 	}
 }
 
@@ -392,9 +394,9 @@ func redirectJSON(stage, name string, jsonName []byte, reader io.ReadCloser) {
 				buffer.Write(now.AppendFormat(timeBuffer, "2006-01-02T15:04:05.000Z07:00"))
 				buffer.WriteString(`"}`)
 				buffer.WriteString("\n")
-				_, err := os.Stdout.Write(buffer.Bytes())
-				if err != nil {
-					logWarnf("%s/%s: error writing stdout: %s", name, stage, err)
+				_, e := os.Stdout.Write(buffer.Bytes())
+				if e != nil {
+					logWarnf("%s/%s: error writing stdout: %s", name, stage, e)
 				}
 			} else {
 				logWarnf("%s/%s: not JSON stdout: %s\n", name, stage, line)
@@ -402,14 +404,14 @@ func redirectJSON(stage, name string, jsonName []byte, reader io.ReadCloser) {
 		}
 	}
 
-	err := scanner.Err()
+	e := scanner.Err()
 	// Reader can get closed and we ignore that.
-	if err != nil && !errors.Is(err, os.ErrClosed) {
-		logWarnf("%s/%s: error reading stdout: %s", name, stage, err)
+	if e != nil && !errors.Is(e, os.ErrClosed) {
+		logWarnf("%s/%s: error reading stdout: %s", name, stage, e)
 	}
 }
 
-func doRedirectAndWait(ctx context.Context, pid int, wait func() (*os.ProcessState, error), stage, name string, jsonName []byte, stdout, stderr *os.File) error {
+func doRedirectAndWait(ctx context.Context, pid int, wait func() (*os.ProcessState, errors.E), stage, name string, jsonName []byte, stdout, stderr *os.File) errors.E {
 	// We do not care about context because we want logging redirects to operate
 	// as long as stdout and stderr are open. This could be longer than the process
 	// is running because they could be further inherited (or duplicated)
@@ -436,7 +438,7 @@ func doRedirectAndWait(ctx context.Context, pid int, wait func() (*os.ProcessSta
 			// This is a condition in Wait when err is set when process fails, so we just ignore the err.
 			status = state.Sys().(syscall.WaitStatus)
 		} else {
-			err = fmt.Errorf("%s/%s: error waiting for the process: %w", name, stage, err)
+			err = errors.Errorf("%s/%s: error waiting for the process: %w", name, stage, err)
 			maybeSetExitCode(exitDinitFailure, err)
 			return err
 		}
@@ -460,7 +462,7 @@ func doRedirectAndWait(ctx context.Context, pid int, wait func() (*os.ProcessSta
 	return nil
 }
 
-func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error {
+func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) errors.E {
 	logInfof("%s/run: stopping", name)
 	r := path.Join(p, "stop")
 	cmd := exec.Command(r)
@@ -469,20 +471,22 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 	// We do not use StdoutPipe and StderrPipe so that we can control when pipe is closed.
 	// See: https://github.com/golang/go/issues/60309
 	// See: https://go-review.googlesource.com/c/tools/+/484741
-	stdout, stdoutWriter, err := os.Pipe()
-	if err != nil {
+	stdout, stdoutWriter, e := os.Pipe()
+	if e != nil {
+		err := errors.WithStack(e)
 		maybeSetExitCode(exitDinitFailure, err)
 		return err
 	}
 	cmd.Stdout = stdoutWriter
-	stderr, stderrWriter, err := os.Pipe()
-	if err != nil {
+	stderr, stderrWriter, e := os.Pipe()
+	if e != nil {
+		err := errors.WithStack(e)
 		maybeSetExitCode(exitDinitFailure, err)
 		return err
 	}
 	cmd.Stderr = stderrWriter
 
-	err = cmdRun(cmd)
+	err := cmdRun(cmd)
 	if err == nil {
 		defer removeRunningChildPid(cmd.Process.Pid)
 	}
@@ -502,11 +506,12 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 		if errors.Is(err, os.ErrNotExist) {
 			logInfof("%s/run: sending SIGTERM to PID %d", name, runCmd.Process.Pid)
 
-			err := runCmd.Process.Signal(unix.SIGTERM)
-			if err != nil {
-				if processNotExist(err) {
+			e := runCmd.Process.Signal(unix.SIGTERM)
+			if e != nil {
+				if processNotExist(e) {
 					return nil
 				}
+				err := errors.WithStack(e)
 				maybeSetExitCode(exitDinitFailure, err)
 				return err
 			}
@@ -519,16 +524,17 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 
 	logInfof("%s/stop: running with PID %d", name, cmd.Process.Pid)
 
-	return doRedirectAndWait(nil, cmd.Process.Pid, func() (*os.ProcessState, error) {
-		err := cmd.Wait()
+	return doRedirectAndWait(nil, cmd.Process.Pid, func() (*os.ProcessState, errors.E) {
+		err := errors.WithStack(cmd.Wait())
 		return cmd.ProcessState, err
 	}, "stop", name, jsonName, stdout, stderr)
 }
 
-func runService(ctx context.Context, g *errgroup.Group, name, p string) error {
+func runService(ctx context.Context, g *errgroup.Group, name, p string) errors.E {
 	logInfof("%s/run: starting", name)
-	jsonName, err := json.Marshal(name)
-	if err != nil {
+	jsonName, e := json.Marshal(name)
+	if e != nil {
+		err := errors.WithStack(e)
 		maybeSetExitCode(exitDinitFailure, err)
 		return err
 	}
@@ -541,24 +547,26 @@ func runService(ctx context.Context, g *errgroup.Group, name, p string) error {
 	// We do not use StdoutPipe and StderrPipe so that we can control when pipe is closed.
 	// See: https://github.com/golang/go/issues/60309
 	// See: https://go-review.googlesource.com/c/tools/+/484741
-	stdout, stdoutWriter, err := os.Pipe()
-	if err != nil {
+	stdout, stdoutWriter, e := os.Pipe()
+	if e != nil {
+		err := errors.WithStack(e)
 		maybeSetExitCode(exitDinitFailure, err)
 		return err
 	}
 	cmd.Stdout = stdoutWriter
-	stderr, stderrWriter, err := os.Pipe()
-	if err != nil {
+	stderr, stderrWriter, e := os.Pipe()
+	if e != nil {
 		// This will not be used.
 		stdout.Close()
 		stdoutWriter.Close()
 
+		err := errors.WithStack(e)
 		maybeSetExitCode(exitDinitFailure, err)
 		return err
 	}
 	cmd.Stderr = stderrWriter
 
-	err = cmdRun(cmd)
+	err := cmdRun(cmd)
 	if err == nil {
 		defer removeRunningChildPid(cmd.Process.Pid)
 	}
@@ -606,8 +614,8 @@ func runService(ctx context.Context, g *errgroup.Group, name, p string) error {
 		}
 	})
 
-	return doRedirectAndWait(ctx, cmd.Process.Pid, func() (*os.ProcessState, error) {
-		err := cmd.Wait()
+	return doRedirectAndWait(ctx, cmd.Process.Pid, func() (*os.ProcessState, errors.E) {
+		err := errors.WithStack(cmd.Wait())
 		return cmd.ProcessState, err
 	}, "run", name, jsonName, stdout, stderr)
 }
@@ -657,7 +665,7 @@ func removeProcessedPid(pid int) {
 // but we force the policy to be reparentingTerminate to terminate reparented processes
 // as soon as possible. The function itself returns only after the context has been
 // canceled and there is no known running children anymore.
-func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) error {
+func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) errors.E {
 	// Processes get reparented to the main thread which has task ID matching PID.
 	childrenPath := fmt.Sprintf("/proc/%d/task/%d/children", mainPid, mainPid)
 	ctxDone := ctx.Done()
@@ -682,20 +690,20 @@ func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) erro
 		case <-ticker.C:
 		}
 
-		childrenData, err := os.ReadFile(childrenPath)
-		if err != nil {
-			if processNotExist(err) {
+		childrenData, e := os.ReadFile(childrenPath)
+		if e != nil {
+			if processNotExist(e) {
 				continue
 			}
-			err = fmt.Errorf("unable to read process children from %s: %w", childrenPath, err)
+			err := errors.Errorf("unable to read process children from %s: %w", childrenPath, e)
 			maybeSetExitCode(exitDinitFailure, err)
 			return err
 		}
 		childrenPids := strings.Fields(string(childrenData))
 		for _, childPid := range childrenPids {
-			p, err := strconv.Atoi(childPid)
-			if err != nil {
-				err = fmt.Errorf("failed to parse PID %s: %w", childPid, err)
+			p, e := strconv.Atoi(childPid)
+			if e != nil {
+				err := errors.Errorf("failed to parse PID %s: %w", childPid, e)
 				maybeSetExitCode(exitDinitFailure, err)
 				return err
 			}
@@ -715,21 +723,21 @@ func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) erro
 			panic(errors.New("negative known running children count"))
 		}
 		if ctx.Err() != nil && len(childrenPids) == 0 && k == 0 {
-			return ctx.Err()
+			return errors.WithStack(ctx.Err())
 		}
 	}
 }
 
 // This is an utility function, so we do not call maybeSetExitCode(exitDinitFailure) on
 // errors but leave it to the caller to decide if and when to do so.
-func getProcessCommandLine(pid int) (string, error) {
+func getProcessCommandLine(pid int) (string, errors.E) {
 	cmdlinePath := fmt.Sprintf("/proc/%d/cmdline", pid)
-	cmdlineData, err := os.ReadFile(cmdlinePath)
-	if err != nil {
-		if processNotExist(err) {
-			return "", os.ErrProcessDone
+	cmdlineData, e := os.ReadFile(cmdlinePath)
+	if e != nil {
+		if processNotExist(e) {
+			return "", errors.WithStack(os.ErrProcessDone)
 		}
-		return "", err
+		return "", errors.WithStack(e)
 	}
 	return string(bytes.ReplaceAll(cmdlineData, []byte("\x00"), []byte(" "))), nil
 }
@@ -737,43 +745,43 @@ func getProcessCommandLine(pid int) (string, error) {
 // This is an utility function, so we do not call maybeSetExitCode(exitDinitFailure) on
 // errors but leave it to the caller to decide if and when to do so.
 // TODO: Should we use waitid with WEXITED|WNOHANG|WNOWAIT options?
-func isZombie(pid int) (bool, error) {
+func isZombie(pid int) (bool, errors.E) {
 	statPath := fmt.Sprintf("/proc/%d/stat", pid)
-	statData, err := os.ReadFile(statPath)
-	if err != nil {
-		if processNotExist(err) {
-			return false, os.ErrProcessDone
+	statData, e := os.ReadFile(statPath)
+	if e != nil {
+		if processNotExist(e) {
+			return false, errors.WithStack(os.ErrProcessDone)
 		}
-		return false, err
+		return false, errors.WithStack(e)
 	}
 	match := procStatRegexp.FindSubmatch(statData)
 	if len(match) != 3 {
-		return false, fmt.Errorf("could not match process state in %s: %s", statPath, statData)
+		return false, errors.Errorf("could not match process state in %s: %s", statPath, statData)
 	}
 	return string(match[2]) == "Z", nil
 }
 
 // This is an utility function, so we do not call maybeSetExitCode(exitDinitFailure) on
 // errors but leave it to the caller to decide if and when to do so.
-func getProcessProgramName(pid int) (string, error) {
+func getProcessProgramName(pid int) (string, errors.E) {
 	statPath := fmt.Sprintf("/proc/%d/stat", pid)
-	statData, err := os.ReadFile(statPath)
-	if err != nil {
-		if processNotExist(err) {
-			return "", os.ErrProcessDone
+	statData, e := os.ReadFile(statPath)
+	if e != nil {
+		if processNotExist(e) {
+			return "", errors.WithStack(os.ErrProcessDone)
 		}
-		return "", err
+		return "", errors.WithStack(e)
 	}
 	match := procStatRegexp.FindSubmatch(statData)
 	if len(match) != 3 {
-		return "", fmt.Errorf("could not match executable name in %s: %s", statPath, statData)
+		return "", errors.Errorf("could not match executable name in %s: %s", statPath, statData)
 	}
 	return string(match[1]), nil
 }
 
 // This is an utility function, so we do not call maybeSetExitCode(exitDinitFailure) on
 // errors but leave it to the caller to decide if and when to do so.
-func getProcessInfo(pid int) (string, string, string, error) {
+func getProcessInfo(pid int) (string, string, string, errors.E) {
 	cmdline, err := getProcessCommandLine(pid)
 	if err != nil {
 		return "", "", "", err
@@ -805,7 +813,7 @@ func getProcessInfo(pid int) (string, string, string, error) {
 
 // We do not care about context cancellation. Even if the context is canceled we still
 // want to continue adopting reparented processes (and terminating them as soon as possible).
-func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
+func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) errors.E {
 	cmdline, name, stage, err := getProcessInfo(pid)
 	if err != nil {
 		if processNotExist(err) {
@@ -817,8 +825,9 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
 		maybeSetExitCode(exitDinitFailure, err)
 		return err
 	}
-	jsonName, err := json.Marshal(name)
-	if err != nil {
+	jsonName, e := json.Marshal(name)
+	if e != nil {
+		err := errors.WithStack(e)
 		maybeSetExitCode(exitDinitFailure, err)
 		return err
 	}
@@ -877,11 +886,12 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
 			logInfof("%s/%s: stopping", name, stage)
 			logInfof("%s/%s: sending SIGTERM to PID %d", name, stage, pid)
 
-			err := p.Signal(unix.SIGTERM)
-			if err != nil {
-				if processNotExist(err) {
+			e := p.Signal(unix.SIGTERM)
+			if e != nil {
+				if processNotExist(e) {
 					return nil
 				}
+				err := errors.WithStack(e)
 				maybeSetExitCode(exitDinitFailure, err)
 				return err
 			}
@@ -894,10 +904,13 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) error {
 		}
 	})
 
-	return doRedirectAndWait(ctx, pid, p.Wait, stage, name, jsonName, stdout, stderr)
+	return doRedirectAndWait(ctx, pid, func() (*os.ProcessState, errors.E) {
+		state, e := p.Wait()
+		return state, errors.WithStack(e)
+	}, stage, name, jsonName, stdout, stderr)
 }
 
-func reapZombie(p *os.Process, name, stage, cmdline string) error {
+func reapZombie(p *os.Process, name, stage, cmdline string) errors.E {
 	if cmdline != "" {
 		logWarnf("%s/%s: reaping process with PID %d: %s", name, stage, p.Pid, cmdline)
 	} else {
@@ -907,11 +920,11 @@ func reapZombie(p *os.Process, name, stage, cmdline string) error {
 	return doWait(p, name, stage)
 }
 
-func doWait(p *os.Process, name, stage string) error {
+func doWait(p *os.Process, name, stage string) errors.E {
 	var status syscall.WaitStatus
-	state, err := p.Wait()
-	if err != nil {
-		err = fmt.Errorf("%s/%s: error waiting for the process: %w", name, stage, err)
+	state, e := p.Wait()
+	if e != nil {
+		err := errors.Errorf("%s/%s: error waiting for the process: %w", name, stage, e)
 		maybeSetExitCode(exitDinitFailure, err)
 		return err
 	} else {
@@ -929,7 +942,7 @@ func doWait(p *os.Process, name, stage string) error {
 
 // We do not care about context cancellation. Even if the context is canceled we still
 // want to continue terminating reparented processes.
-func reparentingTerminate(_ context.Context, g *errgroup.Group, pid int) error {
+func reparentingTerminate(_ context.Context, g *errgroup.Group, pid int) errors.E {
 	cmdline, name, stage, err := getProcessInfo(pid)
 	if err != nil {
 		if processNotExist(err) {
@@ -971,11 +984,12 @@ func reparentingTerminate(_ context.Context, g *errgroup.Group, pid int) error {
 	g.Go(func() error {
 		logInfof("%s/%s: sending SIGTERM to PID %d", name, stage, pid)
 
-		err := p.Signal(unix.SIGTERM)
-		if err != nil {
-			if processNotExist(err) {
+		e := p.Signal(unix.SIGTERM)
+		if e != nil {
+			if processNotExist(e) {
 				return nil
 			}
+			err := errors.WithStack(e)
 			maybeSetExitCode(exitDinitFailure, err)
 			return err
 		}
@@ -998,11 +1012,12 @@ func reparentingTerminate(_ context.Context, g *errgroup.Group, pid int) error {
 
 		logInfof("%s/%s: sending SIGKILL to PID %d", name, stage, pid)
 
-		err = p.Signal(unix.SIGKILL)
-		if err != nil {
-			if processNotExist(err) {
+		e = p.Signal(unix.SIGKILL)
+		if e != nil {
+			if processNotExist(e) {
 				return nil
 			}
+			err := errors.WithStack(e)
 			maybeSetExitCode(exitDinitFailure, err)
 			return err
 		}

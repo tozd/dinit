@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -14,6 +13,7 @@ import (
 	"unsafe"
 
 	"github.com/google/uuid"
+	"gitlab.com/tozd/go/errors"
 	"golang.org/x/sys/unix"
 )
 
@@ -41,89 +41,79 @@ var errorReturn = -1
 // until a breakpoint so that it is easier to allow signal handlers in tracee to run.
 var syscallInstruction = [...]byte{0x0F, 0x05, 0xCC}
 
-// Do not wrap an error if both errors are not nil.
-func errorsJoin(err1, err2 error) error {
-	if err1 == nil {
-		return err2
-	} else if err2 == nil {
-		return err1
-	}
-	return errors.Join(err1, err2)
-}
-
-func newMsghrd(start uint64, p, oob []byte) (uint64, []byte, error) {
+func newMsghrd(start uint64, p, oob []byte) (uint64, []byte, errors.E) {
 	buf := new(bytes.Buffer)
 	// We build unix.Iovec.Base in the buffer.
-	err := binary.Write(buf, binary.LittleEndian, p)
-	if err != nil {
-		return 0, nil, err
+	e := binary.Write(buf, binary.LittleEndian, p)
+	if e != nil {
+		return 0, nil, errors.WithStack(e)
 	}
 	// We build unix.Msghdr.Control in the buffer.
-	err = binary.Write(buf, binary.LittleEndian, oob)
-	if err != nil {
-		return 0, nil, err
+	e = binary.Write(buf, binary.LittleEndian, oob)
+	if e != nil {
+		return 0, nil, errors.WithStack(e)
 	}
 	// We build unix.Iovec in the buffer.
 	// Base field.
-	err = binary.Write(buf, binary.LittleEndian, uint64(start))
-	if err != nil {
-		return 0, nil, err
+	e = binary.Write(buf, binary.LittleEndian, uint64(start))
+	if e != nil {
+		return 0, nil, errors.WithStack(e)
 	}
 	// Len field.
-	err = binary.Write(buf, binary.LittleEndian, uint64(len(p)))
-	if err != nil {
-		return 0, nil, err
+	e = binary.Write(buf, binary.LittleEndian, uint64(len(p)))
+	if e != nil {
+		return 0, nil, errors.WithStack(e)
 	}
 	offset := uint64(buf.Len())
 	// We build unix.Msghdr in the buffer.
 	// Name field. Null pointer.
-	err = binary.Write(buf, binary.LittleEndian, uint64(0))
-	if err != nil {
-		return 0, nil, err
+	e = binary.Write(buf, binary.LittleEndian, uint64(0))
+	if e != nil {
+		return 0, nil, errors.WithStack(e)
 	}
 	// Namelen field.
-	err = binary.Write(buf, binary.LittleEndian, uint32(0))
-	if err != nil {
-		return 0, nil, err
+	e = binary.Write(buf, binary.LittleEndian, uint32(0))
+	if e != nil {
+		return 0, nil, errors.WithStack(e)
 	}
 	// Pad_cgo_0 field.
-	err = binary.Write(buf, binary.LittleEndian, [4]byte{})
-	if err != nil {
-		return 0, nil, err
+	e = binary.Write(buf, binary.LittleEndian, [4]byte{})
+	if e != nil {
+		return 0, nil, errors.WithStack(e)
 	}
 	// Iov field.
-	err = binary.Write(buf, binary.LittleEndian, start+uint64(len(p))+uint64(len(oob)))
-	if err != nil {
-		return 0, nil, err
+	e = binary.Write(buf, binary.LittleEndian, start+uint64(len(p))+uint64(len(oob)))
+	if e != nil {
+		return 0, nil, errors.WithStack(e)
 	}
 	// Iovlen field.
-	err = binary.Write(buf, binary.LittleEndian, uint64(1))
-	if err != nil {
-		return 0, nil, err
+	e = binary.Write(buf, binary.LittleEndian, uint64(1))
+	if e != nil {
+		return 0, nil, errors.WithStack(e)
 	}
 	// Control field.
-	err = binary.Write(buf, binary.LittleEndian, start+uint64(len(p)))
-	if err != nil {
-		return 0, nil, err
+	e = binary.Write(buf, binary.LittleEndian, start+uint64(len(p)))
+	if e != nil {
+		return 0, nil, errors.WithStack(e)
 	}
 	// Controllen field.
-	err = binary.Write(buf, binary.LittleEndian, uint64(len(oob)))
-	if err != nil {
-		return 0, nil, err
+	e = binary.Write(buf, binary.LittleEndian, uint64(len(oob)))
+	if e != nil {
+		return 0, nil, errors.WithStack(e)
 	}
 	// Flags field.
-	err = binary.Write(buf, binary.LittleEndian, int32(0))
-	if err != nil {
-		return 0, nil, err
+	e = binary.Write(buf, binary.LittleEndian, int32(0))
+	if e != nil {
+		return 0, nil, errors.WithStack(e)
 	}
 	// Pad_cgo_1 field.
-	err = binary.Write(buf, binary.LittleEndian, [4]byte{})
-	if err != nil {
-		return 0, nil, err
+	e = binary.Write(buf, binary.LittleEndian, [4]byte{})
+	if e != nil {
+		return 0, nil, errors.WithStack(e)
 	}
 	// Sanity check.
 	if uint64(buf.Len())-offset != uint64(unsafe.Sizeof(unix.Msghdr{})) {
-		panic(fmt.Errorf("Msghdr in buffer does not match the size of Msghdr"))
+		panic(errors.Errorf("Msghdr in buffer does not match the size of Msghdr"))
 	}
 	return offset, buf.Bytes(), nil
 }
@@ -134,33 +124,33 @@ type PtraceTracee struct {
 }
 
 // Attach attaches to the tracee and allocates private working memory in it.
-func (t *PtraceTracee) Attach() error {
+func (t *PtraceTracee) Attach() errors.E {
 	if t.memoryAddress != 0 {
-		return fmt.Errorf("tracee already attached")
+		return errors.Errorf("tracee already attached")
 	}
 
-	err := unix.PtraceSeize(t.Pid)
+	err := errors.WithStack(unix.PtraceSeize(t.Pid))
 	if err != nil {
-		return fmt.Errorf("ptrace seize: %w", err)
+		return errors.Errorf("ptrace seize: %w", err)
 	}
 
-	err = unix.PtraceInterrupt(t.Pid)
+	err = errors.WithStack(unix.PtraceInterrupt(t.Pid))
 	if err != nil {
-		err = fmt.Errorf("ptrace interrupt: %w", err)
-		err2 := unix.PtraceDetach(t.Pid)
-		return errorsJoin(err, err2)
+		err = errors.Errorf("ptrace interrupt: %w", err)
+		err2 := errors.WithStack(unix.PtraceDetach(t.Pid))
+		return errors.Join(err, err2)
 	}
 
 	err = t.waitTrap(unix.PTRACE_EVENT_STOP)
 	if err != nil {
-		err2 := unix.PtraceDetach(t.Pid)
-		return errorsJoin(err, err2)
+		err2 := errors.WithStack(unix.PtraceDetach(t.Pid))
+		return errors.Join(err, err2)
 	}
 
 	address, err := t.allocateMemory()
 	if err != nil {
-		err2 := unix.PtraceDetach(t.Pid)
-		return errorsJoin(err, err2)
+		err2 := errors.WithStack(unix.PtraceDetach(t.Pid))
+		return errors.Join(err, err2)
 	}
 
 	t.memoryAddress = address
@@ -169,23 +159,23 @@ func (t *PtraceTracee) Attach() error {
 }
 
 // Detach detaches from the tracee and frees the allocated private working memory in it.
-func (t *PtraceTracee) Detach() error {
+func (t *PtraceTracee) Detach() errors.E {
 	if t.memoryAddress == 0 {
-		return fmt.Errorf("tracee not attached")
+		return errors.Errorf("tracee not attached")
 	}
 
 	err := t.freeMemory(t.memoryAddress)
 	if err != nil {
-		err2 := unix.PtraceDetach(t.Pid)
+		err2 := errors.WithStack(unix.PtraceDetach(t.Pid))
 		if err2 == nil {
 			t.memoryAddress = 0
 		}
-		return errorsJoin(err, err2)
+		return errors.Join(err, err2)
 	}
 
-	err = unix.PtraceDetach(t.Pid)
+	err = errors.WithStack(unix.PtraceDetach(t.Pid))
 	if err != nil {
-		return fmt.Errorf("ptrace detach: %w", err)
+		return errors.Errorf("ptrace detach: %w", err)
 	}
 
 	t.memoryAddress = 0
@@ -197,15 +187,15 @@ func (t *PtraceTracee) Detach() error {
 // It uses an abstract unix domain socket to get traceeFds from the tracee. If any of traceeFds
 // are not found in the tracee, -1 is used in hostFds for it instead and no error is reported.
 // You should close traceeFds afterwards if they are not needed anymore in the tracee.
-func (t *PtraceTracee) GetFds(traceeFds []int) (hostFds []int, err error) {
+func (t *PtraceTracee) GetFds(traceeFds []int) (hostFds []int, err errors.E) {
 	if t.memoryAddress == 0 {
-		return nil, fmt.Errorf("tracee not attached")
+		return nil, errors.Errorf("tracee not attached")
 	}
 
 	// Address starting with @ signals that this is an abstract unix domain socket.
-	u, err := uuid.NewRandom()
-	if err != nil {
-		return nil, err
+	u, e := uuid.NewRandom()
+	if e != nil {
+		return nil, errors.WithStack(e)
 	}
 	addr := fmt.Sprintf("@dinit-%s.sock", u.String())
 
@@ -215,7 +205,7 @@ func (t *PtraceTracee) GetFds(traceeFds []int) (hostFds []int, err error) {
 	}
 	defer func() {
 		err2 := t.sysClose(traceeSocket)
-		err = errorsJoin(err, err2)
+		err = errors.Join(err, err2)
 	}()
 
 	err = t.sysBindUnix(traceeSocket, addr)
@@ -228,15 +218,15 @@ func (t *PtraceTracee) GetFds(traceeFds []int) (hostFds []int, err error) {
 		return nil, err
 	}
 
-	connection, err := net.Dial("unix", addr)
-	if err != nil {
-		return nil, fmt.Errorf("dial: %w", err)
+	connection, e := net.Dial("unix", addr)
+	if e != nil {
+		return nil, errors.Errorf("dial: %w", e)
 	}
 	defer connection.Close()
 
 	unixConnection, ok := connection.(*net.UnixConn)
 	if !ok {
-		return nil, fmt.Errorf("connection is %T and not net.UnixConn", connection)
+		return nil, errors.Errorf("connection is %T and not net.UnixConn", connection)
 	}
 
 	traceeConnection, err := t.sysAccept(traceeSocket, 0)
@@ -245,7 +235,7 @@ func (t *PtraceTracee) GetFds(traceeFds []int) (hostFds []int, err error) {
 	}
 	defer func() {
 		err2 := t.sysClose(traceeConnection)
-		err = errorsJoin(err, err2)
+		err = errors.Join(err, err2)
 	}()
 
 	for _, traceeFd := range traceeFds {
@@ -266,23 +256,23 @@ func (t *PtraceTracee) GetFds(traceeFds []int) (hostFds []int, err error) {
 		p := make([]byte, dataSize)
 		oob := make([]byte, controlSize)
 		// TODO: What to do on short reads?
-		_, oobn, _, _, err := unixConnection.ReadMsgUnix(p, oob)
-		if err != nil {
-			return hostFds, err
+		_, oobn, _, _, e := unixConnection.ReadMsgUnix(p, oob)
+		if e != nil {
+			return hostFds, errors.WithStack(e)
 		}
 
 		// The buffer might not been used fully.
 		oob = oob[:oobn]
 
-		cmsgs, err := unix.ParseSocketControlMessage(oob)
-		if err != nil {
-			return hostFds, fmt.Errorf("ParseSocketControlMessage: %w", err)
+		cmsgs, e := unix.ParseSocketControlMessage(oob)
+		if e != nil {
+			return hostFds, errors.Errorf("ParseSocketControlMessage: %w", e)
 		}
 
 		for _, cmsg := range cmsgs {
-			fds, err := unix.ParseUnixRights(&cmsg)
-			if err != nil {
-				return hostFds, fmt.Errorf("ParseUnixRights: %w", err)
+			fds, e := unix.ParseUnixRights(&cmsg)
+			if e != nil {
+				return hostFds, errors.Errorf("ParseUnixRights: %w", e)
 			}
 
 			hostFds = append(hostFds, fds...)
@@ -296,20 +286,20 @@ func (t *PtraceTracee) GetFds(traceeFds []int) (hostFds []int, err error) {
 // It uses an abstract unix domain socket to send hostFd to the tracee and then dup2 syscall
 // to set that file descriptor to traceeFd in the tracee (any previous traceeFd is closed
 // by dup2). You should close hostFd afterwards if it is not needed anymore in this process.
-func (t *PtraceTracee) SetFd(hostFd int, traceeFd int) (err error) {
+func (t *PtraceTracee) SetFd(hostFd int, traceeFd int) (err errors.E) {
 	if t.memoryAddress == 0 {
-		return fmt.Errorf("tracee not attached")
+		return errors.Errorf("tracee not attached")
 	}
 
 	// Address starting with @ signals that this is an abstract unix domain socket.
-	u, err := uuid.NewRandom()
-	if err != nil {
-		return err
+	u, e := uuid.NewRandom()
+	if e != nil {
+		return errors.WithStack(e)
 	}
 	addr := fmt.Sprintf("@dinit-%s.sock", u.String())
-	listen, err := net.Listen("unix", addr)
-	if err != nil {
-		return fmt.Errorf("listen: %w", err)
+	listen, e := net.Listen("unix", addr)
+	if e != nil {
+		return errors.Errorf("listen: %w", e)
 	}
 	defer listen.Close()
 
@@ -321,7 +311,7 @@ func (t *PtraceTracee) SetFd(hostFd int, traceeFd int) (err error) {
 	}
 	defer func() {
 		err2 := t.sysClose(traceeSocket)
-		err = errorsJoin(err, err2)
+		err = errors.Join(err, err2)
 	}()
 
 	err = t.sysConnectUnix(traceeSocket, addr)
@@ -329,24 +319,24 @@ func (t *PtraceTracee) SetFd(hostFd int, traceeFd int) (err error) {
 		return err
 	}
 
-	connection, err := listen.Accept()
-	if err != nil {
-		return fmt.Errorf("accept: %w", err)
+	connection, e := listen.Accept()
+	if e != nil {
+		return errors.Errorf("accept: %w", e)
 	}
 	defer connection.Close()
 
 	unixConnection, ok := connection.(*net.UnixConn)
 	if !ok {
-		return fmt.Errorf("connection is %T and not net.UnixConn", connection)
+		return errors.Errorf("connection is %T and not net.UnixConn", connection)
 	}
 
 	// Encode the file descriptor.
 	rights := unix.UnixRights(hostFd)
 	// Send it over. Write always returns error on short writes.
 	// We send one byte data just to be sure everything gets through.
-	_, _, err = unixConnection.WriteMsgUnix([]byte{0}, rights, nil)
-	if err != nil {
-		return err
+	_, _, e = unixConnection.WriteMsgUnix([]byte{0}, rights, nil)
+	if e != nil {
+		return errors.WithStack(e)
 	}
 
 	// We could be more precise with needed sizes here, but it is good enough.
@@ -361,14 +351,14 @@ func (t *PtraceTracee) SetFd(hostFd int, traceeFd int) (err error) {
 	// The buffer might not been used fully.
 	oob = oob[:oobn]
 
-	cmsgs, err := unix.ParseSocketControlMessage(oob)
-	if err != nil {
-		return fmt.Errorf("ParseSocketControlMessage: %w", err)
+	cmsgs, e := unix.ParseSocketControlMessage(oob)
+	if e != nil {
+		return errors.Errorf("ParseSocketControlMessage: %w", e)
 	}
 
-	fds, err := unix.ParseUnixRights(&cmsgs[0])
-	if err != nil {
-		return fmt.Errorf("ParseUnixRights: %w", err)
+	fds, e := unix.ParseUnixRights(&cmsgs[0])
+	if e != nil {
+		return errors.Errorf("ParseUnixRights: %w", e)
 	}
 
 	fd := fds[0]
@@ -389,8 +379,8 @@ func (t *PtraceTracee) SetFd(hostFd int, traceeFd int) (err error) {
 // Allocate private segment of memory in the tracee. We use it as
 // the working memory for syscalls. Memory is configured to be
 // executable as well and we store opcodes to run into it as well.
-func (t *PtraceTracee) allocateMemory() (uint64, error) {
-	addr, err := t.doSyscall(false, unix.SYS_MMAP, func(start uint64) ([]byte, [6]uint64, error) {
+func (t *PtraceTracee) allocateMemory() (uint64, errors.E) {
+	addr, err := t.doSyscall(false, unix.SYS_MMAP, func(start uint64) ([]byte, [6]uint64, errors.E) {
 		fd := -1
 		return nil, [6]uint64{
 			0,          // addr
@@ -402,28 +392,28 @@ func (t *PtraceTracee) allocateMemory() (uint64, error) {
 		}, nil
 	})
 	if err != nil {
-		err = fmt.Errorf("allocate memory: %w", err)
+		err = errors.Errorf("allocate memory: %w", err)
 	}
 	return addr, err
 }
 
 // Free private segment of memory in the tracee.
-func (t *PtraceTracee) freeMemory(address uint64) error {
-	_, err := t.doSyscall(false, unix.SYS_MUNMAP, func(start uint64) ([]byte, [6]uint64, error) {
+func (t *PtraceTracee) freeMemory(address uint64) errors.E {
+	_, err := t.doSyscall(false, unix.SYS_MUNMAP, func(start uint64) ([]byte, [6]uint64, errors.E) {
 		return nil, [6]uint64{
 			address,    // addr
 			memorySize, // length
 		}, nil
 	})
 	if err != nil {
-		err = fmt.Errorf("free memory: %w", err)
+		err = errors.Errorf("free memory: %w", err)
 	}
 	return err
 }
 
 // socket syscall in the tracee.
-func (t *PtraceTracee) sysSocket(domain, typ, proto int) (int, error) {
-	fd, err := t.doSyscall(true, unix.SYS_SOCKET, func(start uint64) ([]byte, [6]uint64, error) {
+func (t *PtraceTracee) sysSocket(domain, typ, proto int) (int, errors.E) {
+	fd, err := t.doSyscall(true, unix.SYS_SOCKET, func(start uint64) ([]byte, [6]uint64, errors.E) {
 		return nil, [6]uint64{
 			uint64(domain), // domain
 			uint64(typ),    // type
@@ -431,41 +421,41 @@ func (t *PtraceTracee) sysSocket(domain, typ, proto int) (int, error) {
 		}, nil
 	})
 	if err != nil {
-		err = fmt.Errorf("sys socket: %w", err)
+		err = errors.Errorf("sys socket: %w", err)
 	}
 	return int(fd), err
 }
 
 // close syscall in the tracee.
-func (t *PtraceTracee) sysClose(fd int) error {
-	_, err := t.doSyscall(true, unix.SYS_CLOSE, func(start uint64) ([]byte, [6]uint64, error) {
+func (t *PtraceTracee) sysClose(fd int) errors.E {
+	_, err := t.doSyscall(true, unix.SYS_CLOSE, func(start uint64) ([]byte, [6]uint64, errors.E) {
 		return nil, [6]uint64{
 			uint64(fd), // fd
 		}, nil
 	})
 	if err != nil {
-		err = fmt.Errorf("sys close: %w", err)
+		err = errors.Errorf("sys close: %w", err)
 	}
 	return err
 }
 
 // listen syscall in the tracee.
-func (t *PtraceTracee) sysListen(fd, backlog int) error {
-	_, err := t.doSyscall(true, unix.SYS_LISTEN, func(start uint64) ([]byte, [6]uint64, error) {
+func (t *PtraceTracee) sysListen(fd, backlog int) errors.E {
+	_, err := t.doSyscall(true, unix.SYS_LISTEN, func(start uint64) ([]byte, [6]uint64, errors.E) {
 		return nil, [6]uint64{
 			uint64(fd),      // sockfd
 			uint64(backlog), // backlog
 		}, nil
 	})
 	if err != nil {
-		err = fmt.Errorf("sys listen: %w", err)
+		err = errors.Errorf("sys listen: %w", err)
 	}
 	return err
 }
 
 // accept syscall in the tracee.
-func (t *PtraceTracee) sysAccept(fd, flags int) (int, error) {
-	connFd, err := t.doSyscall(true, unix.SYS_ACCEPT4, func(start uint64) ([]byte, [6]uint64, error) {
+func (t *PtraceTracee) sysAccept(fd, flags int) (int, errors.E) {
+	connFd, err := t.doSyscall(true, unix.SYS_ACCEPT4, func(start uint64) ([]byte, [6]uint64, errors.E) {
 		return nil, [6]uint64{
 			uint64(fd),    // sockfd
 			0,             // addr
@@ -474,35 +464,35 @@ func (t *PtraceTracee) sysAccept(fd, flags int) (int, error) {
 		}, nil
 	})
 	if err != nil {
-		err = fmt.Errorf("sys accept: %w", err)
+		err = errors.Errorf("sys accept: %w", err)
 	}
 	return int(connFd), err
 }
 
 // dup2 syscall in the tracee.
-func (t *PtraceTracee) sysDup2(oldFd, newFd int) error {
-	_, err := t.doSyscall(true, unix.SYS_DUP2, func(start uint64) ([]byte, [6]uint64, error) {
+func (t *PtraceTracee) sysDup2(oldFd, newFd int) errors.E {
+	_, err := t.doSyscall(true, unix.SYS_DUP2, func(start uint64) ([]byte, [6]uint64, errors.E) {
 		return nil, [6]uint64{
 			uint64(oldFd), // oldfd
 			uint64(newFd), // newfd
 		}, nil
 	})
 	if err != nil {
-		err = fmt.Errorf("sys dup2: %w", err)
+		err = errors.Errorf("sys dup2: %w", err)
 	}
 	return err
 }
 
 // connect syscall in the tracee for AF_UNIX socket path. If path starts with @, it is replaced
 // with null character to connect to an abstract unix domain socket.
-func (t *PtraceTracee) sysConnectUnix(fd int, path string) error {
-	_, err := t.doSyscall(true, unix.SYS_CONNECT, func(start uint64) ([]byte, [6]uint64, error) {
+func (t *PtraceTracee) sysConnectUnix(fd int, path string) errors.E {
+	_, err := t.doSyscall(true, unix.SYS_CONNECT, func(start uint64) ([]byte, [6]uint64, errors.E) {
 		buf := new(bytes.Buffer)
 		// We build unix.RawSockaddrUnix in the buffer.
 		// Family field.
-		err := binary.Write(buf, binary.LittleEndian, uint16(unix.AF_UNIX))
-		if err != nil {
-			return nil, [6]uint64{}, err
+		e := binary.Write(buf, binary.LittleEndian, uint16(unix.AF_UNIX))
+		if e != nil {
+			return nil, [6]uint64{}, errors.WithStack(e)
 		}
 		p := []byte(path)
 		abstract := false
@@ -515,20 +505,20 @@ func (t *PtraceTracee) sysConnectUnix(fd int, path string) error {
 			abstract = true
 		}
 		// Path field.
-		err = binary.Write(buf, binary.LittleEndian, p)
-		if err != nil {
-			return nil, [6]uint64{}, err
+		e = binary.Write(buf, binary.LittleEndian, p)
+		if e != nil {
+			return nil, [6]uint64{}, errors.WithStack(e)
 		}
 		if !abstract {
 			// If not abstract, then write a null character.
-			err = binary.Write(buf, binary.LittleEndian, uint8(0))
-			if err != nil {
-				return nil, [6]uint64{}, err
+			e = binary.Write(buf, binary.LittleEndian, uint8(0))
+			if e != nil {
+				return nil, [6]uint64{}, errors.WithStack(e)
 			}
 		}
 		// Sanity check.
 		if uint64(buf.Len()) > uint64(unsafe.Sizeof(unix.RawSockaddrUnix{})) {
-			return nil, [6]uint64{}, fmt.Errorf("path too long")
+			return nil, [6]uint64{}, errors.Errorf("path too long")
 		}
 		payload := buf.Bytes()
 		return payload, [6]uint64{
@@ -538,21 +528,21 @@ func (t *PtraceTracee) sysConnectUnix(fd int, path string) error {
 		}, nil
 	})
 	if err != nil {
-		err = fmt.Errorf("sys connect unix: %w", err)
+		err = errors.Errorf("sys connect unix: %w", err)
 	}
 	return err
 }
 
 // bind syscall in the tracee for AF_UNIX socket path. If path starts with @, it is replaced
 // with null character to bind to an abstract unix domain socket.
-func (t *PtraceTracee) sysBindUnix(fd int, path string) error {
-	_, err := t.doSyscall(true, unix.SYS_BIND, func(start uint64) ([]byte, [6]uint64, error) {
+func (t *PtraceTracee) sysBindUnix(fd int, path string) errors.E {
+	_, err := t.doSyscall(true, unix.SYS_BIND, func(start uint64) ([]byte, [6]uint64, errors.E) {
 		buf := new(bytes.Buffer)
 		// We build unix.RawSockaddrUnix in the buffer.
 		// Family field.
-		err := binary.Write(buf, binary.LittleEndian, uint16(unix.AF_UNIX))
-		if err != nil {
-			return nil, [6]uint64{}, err
+		e := binary.Write(buf, binary.LittleEndian, uint16(unix.AF_UNIX))
+		if e != nil {
+			return nil, [6]uint64{}, errors.WithStack(e)
 		}
 		p := []byte(path)
 		abstract := false
@@ -565,20 +555,20 @@ func (t *PtraceTracee) sysBindUnix(fd int, path string) error {
 			abstract = true
 		}
 		// Path field.
-		err = binary.Write(buf, binary.LittleEndian, p)
-		if err != nil {
-			return nil, [6]uint64{}, err
+		e = binary.Write(buf, binary.LittleEndian, p)
+		if e != nil {
+			return nil, [6]uint64{}, errors.WithStack(e)
 		}
 		if !abstract {
 			// If not abstract, then write a null character.
-			err = binary.Write(buf, binary.LittleEndian, uint8(0))
-			if err != nil {
-				return nil, [6]uint64{}, err
+			e = binary.Write(buf, binary.LittleEndian, uint8(0))
+			if e != nil {
+				return nil, [6]uint64{}, errors.WithStack(e)
 			}
 		}
 		// Sanity check.
 		if uint64(buf.Len()) > uint64(unsafe.Sizeof(unix.RawSockaddrUnix{})) {
-			return nil, [6]uint64{}, fmt.Errorf("path too long")
+			return nil, [6]uint64{}, errors.Errorf("path too long")
 		}
 		payload := buf.Bytes()
 		return payload, [6]uint64{
@@ -588,15 +578,15 @@ func (t *PtraceTracee) sysBindUnix(fd int, path string) error {
 		}, nil
 	})
 	if err != nil {
-		err = fmt.Errorf("sys connect unix: %w", err)
+		err = errors.Errorf("sys connect unix: %w", err)
 	}
 	return err
 }
 
 // sendmsg syscall in the tracee.
-func (t *PtraceTracee) sysSendmsg(fd int, p, oob []byte, flags int) (int, int, error) {
+func (t *PtraceTracee) sysSendmsg(fd int, p, oob []byte, flags int) (int, int, errors.E) {
 	var payload []byte
-	res, err := t.doSyscall(true, unix.SYS_SENDMSG, func(start uint64) ([]byte, [6]uint64, error) {
+	res, err := t.doSyscall(true, unix.SYS_SENDMSG, func(start uint64) ([]byte, [6]uint64, errors.E) {
 		offset, p, err := newMsghrd(start, p, oob)
 		if err != nil {
 			return nil, [6]uint64{}, err
@@ -609,15 +599,15 @@ func (t *PtraceTracee) sysSendmsg(fd int, p, oob []byte, flags int) (int, int, e
 		}, nil
 	})
 	if err != nil {
-		return int(res), 0, fmt.Errorf("sys sendmsg: %w", err)
+		return int(res), 0, errors.Errorf("sys sendmsg: %w", err)
 	}
 	return int(res), len(oob), nil
 }
 
 // recvmsg syscall in the tracee.
-func (t *PtraceTracee) sysRecvmsg(fd int, p, oob []byte, flags int) (int, int, int, error) {
+func (t *PtraceTracee) sysRecvmsg(fd int, p, oob []byte, flags int) (int, int, int, errors.E) {
 	var payload []byte
-	res, err := t.doSyscall(true, unix.SYS_RECVMSG, func(start uint64) ([]byte, [6]uint64, error) {
+	res, err := t.doSyscall(true, unix.SYS_RECVMSG, func(start uint64) ([]byte, [6]uint64, errors.E) {
 		offset, p, err := newMsghrd(start, p, oob)
 		if err != nil {
 			return nil, [6]uint64{}, err
@@ -630,16 +620,16 @@ func (t *PtraceTracee) sysRecvmsg(fd int, p, oob []byte, flags int) (int, int, i
 		}, nil
 	})
 	if err != nil {
-		return int(res), 0, 0, fmt.Errorf("sys recvmsg: %w", err)
+		return int(res), 0, 0, errors.Errorf("sys recvmsg: %w", err)
 	}
 	buf := bytes.NewReader(payload)
-	err = binary.Read(buf, binary.LittleEndian, p) // unix.Iovec.Base
-	if err != nil {
-		return int(res), 0, 0, fmt.Errorf("sys recvmsg: %w", err)
+	e := binary.Read(buf, binary.LittleEndian, p) // unix.Iovec.Base
+	if e != nil {
+		return int(res), 0, 0, errors.Errorf("sys recvmsg: %w", e)
 	}
-	err = binary.Read(buf, binary.LittleEndian, oob) // unix.Msghdr.Control
-	if err != nil {
-		return int(res), 0, 0, fmt.Errorf("sys recvmsg: %w", err)
+	e = binary.Read(buf, binary.LittleEndian, oob) // unix.Msghdr.Control
+	if e != nil {
+		return int(res), 0, 0, errors.Errorf("sys recvmsg: %w", e)
 	}
 	_, _ = io.CopyN(io.Discard, buf, 8) // unix.Iovec.Base field.
 	_, _ = io.CopyN(io.Discard, buf, 8) // unix.Iovec.Len field.
@@ -650,14 +640,14 @@ func (t *PtraceTracee) sysRecvmsg(fd int, p, oob []byte, flags int) (int, int, i
 	_, _ = io.CopyN(io.Discard, buf, 8) // Iovlen field.
 	_, _ = io.CopyN(io.Discard, buf, 8) // Control field.
 	var oobn uint64
-	err = binary.Read(buf, binary.LittleEndian, &oobn) // Controllen field.
-	if err != nil {
-		return int(res), 0, 0, fmt.Errorf("sys recvmsg: %w", err)
+	e = binary.Read(buf, binary.LittleEndian, &oobn) // Controllen field.
+	if e != nil {
+		return int(res), 0, 0, errors.Errorf("sys recvmsg: %w", e)
 	}
 	var recvflags int32
-	err = binary.Read(buf, binary.LittleEndian, &recvflags) // Flags field.
-	if err != nil {
-		return int(res), 0, 0, fmt.Errorf("sys recvmsg: %w", err)
+	e = binary.Read(buf, binary.LittleEndian, &recvflags) // Flags field.
+	if e != nil {
+		return int(res), 0, 0, errors.Errorf("sys recvmsg: %w", e)
 	}
 	return int(res), int(oobn), int(recvflags), nil
 }
@@ -666,16 +656,15 @@ func (t *PtraceTracee) sysRecvmsg(fd int, p, oob []byte, flags int) (int, int, i
 // In almost all cases you want to use it with useMemory set to true to
 // not change code of the tracee to run a syscall. (We use useMemory set
 // to false only to obtain and free such memory.)
-func (t *PtraceTracee) syscall(useMemory bool, call int, args func(start uint64) ([]byte, [6]uint64, error)) (result uint64, err error) {
+func (t *PtraceTracee) syscall(useMemory bool, call int, args func(start uint64) ([]byte, [6]uint64, errors.E)) (result uint64, err errors.E) {
 	if useMemory && t.memoryAddress == 0 {
-		return uint64(errorReturn), fmt.Errorf("syscall using memory is not possible without memory")
+		return uint64(errorReturn), errors.Errorf("syscall using memory is not possible without memory")
 	}
 
 	var originalRegs unix.PtraceRegs
-	err = unix.PtraceGetRegs(t.Pid, &originalRegs)
+	err = errors.WithStack(unix.PtraceGetRegs(t.Pid, &originalRegs))
 	if err != nil {
-		err = fmt.Errorf("ptrace getregs: %w", err)
-		return uint64(errorReturn), err
+		return uint64(errorReturn), errors.Errorf("ptrace getregs: %w", err)
 	}
 
 	var start uint64
@@ -690,7 +679,7 @@ func (t *PtraceTracee) syscall(useMemory bool, call int, args func(start uint64)
 		}
 		availableMemory := memorySize - len(syscallInstruction)
 		if len(payload) > availableMemory {
-			return uint64(errorReturn), fmt.Errorf("syscall payload (%d B) is larger than available memory (%d B)", len(payload), availableMemory)
+			return uint64(errorReturn), errors.Errorf("syscall payload (%d B) is larger than available memory (%d B)", len(payload), availableMemory)
 		}
 	} else {
 		// TODO: What happens if Rip is not 64bit aligned?
@@ -708,14 +697,14 @@ func (t *PtraceTracee) syscall(useMemory bool, call int, args func(start uint64)
 	}
 
 	defer func() {
-		err2 := unix.PtraceSetRegs(t.Pid, &originalRegs)
-		err = errorsJoin(err, err2)
+		err2 := errors.WithStack(unix.PtraceSetRegs(t.Pid, &originalRegs))
+		err = errors.Join(err, err2)
 	}()
 
 	if !useMemory {
 		defer func() {
 			err2 := t.writeData(uintptr(start), originalInstructions)
-			err = errorsJoin(err, err2)
+			err = errors.Join(err, err2)
 		}()
 	}
 
@@ -741,10 +730,9 @@ func (t *PtraceTracee) syscall(useMemory bool, call int, args func(start uint64)
 	newRegs.R8 = arguments[4]
 	newRegs.R9 = arguments[5]
 
-	err = unix.PtraceSetRegs(t.Pid, &newRegs)
+	err = errors.WithStack(unix.PtraceSetRegs(t.Pid, &newRegs))
 	if err != nil {
-		err = fmt.Errorf("ptrace setregs: %w", err)
-		return uint64(errorReturn), err
+		return uint64(errorReturn), errors.Errorf("ptrace setregs: %w", err)
 	}
 
 	err = t.runToBreakpoint()
@@ -752,14 +740,13 @@ func (t *PtraceTracee) syscall(useMemory bool, call int, args func(start uint64)
 		return uint64(errorReturn), err
 	}
 
-	err = unix.PtraceGetRegs(t.Pid, &resultRegs)
+	err = errors.WithStack(unix.PtraceGetRegs(t.Pid, &resultRegs))
 	if err != nil {
-		err = fmt.Errorf("ptrace getregs: %w", err)
-		return uint64(errorReturn), err
+		return uint64(errorReturn), errors.Errorf("ptrace getregs: %w", err)
 	}
 
 	if resultRegs.Rax > maxErrno {
-		return uint64(errorReturn), unix.Errno(-resultRegs.Rax)
+		return uint64(errorReturn), errors.WithStack(unix.Errno(-resultRegs.Rax))
 	}
 
 	newPayload, err := t.readData(uintptr(start), len(payload))
@@ -774,7 +761,7 @@ func (t *PtraceTracee) syscall(useMemory bool, call int, args func(start uint64)
 // Syscalls can be interrupted by signal handling and might abort. So we
 // wrap them with a loop which retries them automatically if interrupted.
 // We do not handle EAGAIN here on purpose, to not block in a loop.
-func (t *PtraceTracee) doSyscall(useMemory bool, call int, args func(start uint64) ([]byte, [6]uint64, error)) (uint64, error) {
+func (t *PtraceTracee) doSyscall(useMemory bool, call int, args func(start uint64) ([]byte, [6]uint64, errors.E)) (uint64, errors.E) {
 	// TODO: Handle ERESTART_RESTARTBLOCK as well and call restart_syscall syscall?
 	for {
 		result, err := t.syscall(useMemory, call, args)
@@ -796,28 +783,26 @@ func (t *PtraceTracee) doSyscall(useMemory bool, call int, args func(start uint6
 }
 
 // Read from the memory of the tracee.
-func (t *PtraceTracee) readData(address uintptr, length int) ([]byte, error) {
+func (t *PtraceTracee) readData(address uintptr, length int) ([]byte, errors.E) {
 	data := make([]byte, length)
-	n, err := unix.PtracePeekData(t.Pid, address, data)
-	if err != nil {
-		err = fmt.Errorf("ptrace peekdata: %w", err)
-		return nil, err
+	n, e := unix.PtracePeekData(t.Pid, address, data)
+	if e != nil {
+		return nil, errors.Errorf("ptrace peekdata: %w", e)
 	}
 	if n != length {
-		return nil, fmt.Errorf("wanted to read %d bytes, but read %d bytes", length, n)
+		return nil, errors.Errorf("wanted to read %d bytes, but read %d bytes", length, n)
 	}
 	return data, nil
 }
 
 // Read into the memory of the tracee.
-func (t *PtraceTracee) writeData(address uintptr, data []byte) error {
-	n, err := unix.PtracePokeData(t.Pid, address, data)
-	if err != nil {
-		err = fmt.Errorf("ptrace pokedata: %w", err)
-		return err
+func (t *PtraceTracee) writeData(address uintptr, data []byte) errors.E {
+	n, e := unix.PtracePokeData(t.Pid, address, data)
+	if e != nil {
+		return errors.Errorf("ptrace pokedata: %w", e)
 	}
 	if n != len(data) {
-		return fmt.Errorf("wanted to write %d bytes, but wrote %d bytes", len(data), n)
+		return errors.Errorf("wanted to write %d bytes, but wrote %d bytes", len(data), n)
 	}
 	return nil
 }
@@ -827,28 +812,28 @@ func (t *PtraceTracee) writeData(address uintptr, data []byte) error {
 // and returns once we hit the breakpoint. During execution signal handlers
 // of the trustee might run as well before the breakpoint is reached (this is
 // why we use ptrace cont with a breakpoint and not ptrace single step).
-func (t *PtraceTracee) runToBreakpoint() error {
-	err := unix.PtraceCont(t.Pid, 0)
+func (t *PtraceTracee) runToBreakpoint() errors.E {
+	err := errors.WithStack(unix.PtraceCont(t.Pid, 0))
 	if err != nil {
-		return fmt.Errorf("run to breakpoint: %w", err)
+		return errors.Errorf("run to breakpoint: %w", err)
 	}
 
 	// 0 trap cause means a breakpoint or single stepping.
 	return t.waitTrap(0)
 }
 
-func (t *PtraceTracee) waitTrap(cause int) error {
+func (t *PtraceTracee) waitTrap(cause int) errors.E {
 	for {
 		var status unix.WaitStatus
-		var err error
+		var e error
 		for {
-			_, err = unix.Wait4(t.Pid, &status, 0, nil)
-			if err == nil || !errors.Is(err, unix.EINTR) {
+			_, e = unix.Wait4(t.Pid, &status, 0, nil)
+			if e == nil || !errors.Is(e, unix.EINTR) {
 				break
 			}
 		}
-		if err != nil {
-			return fmt.Errorf("wait trap: %w", err)
+		if e != nil {
+			return errors.Errorf("wait trap: %w", e)
 		}
 		// A breakpoint or other trap cause we expected has been reached.
 		if status.TrapCause() == cause {
@@ -862,20 +847,20 @@ func (t *PtraceTracee) waitTrap(cause int) error {
 			// ptraced any signal it receives stops the tracee for us to decide what to do about the
 			// signal. In our case we just pass the signal back to the tracee using ptrace cont and
 			// let its signal handler do its work.
-			err := unix.PtraceCont(t.Pid, int(status.StopSignal()))
+			err := errors.WithStack(unix.PtraceCont(t.Pid, int(status.StopSignal())))
 			if err != nil {
-				return fmt.Errorf("wait trap: ptrace cont with %d: %w", int(status.StopSignal()), err)
+				return errors.Errorf("wait trap: ptrace cont with %d: %w", int(status.StopSignal()), err)
 			}
 			continue
 		}
-		return fmt.Errorf("wait trap: unexpected wait status after wait, exit status %d, signal %d, stop signal %d, trap cause %d, expected trap cause %d", status.ExitStatus(), status.Signal(), status.StopSignal(), status.TrapCause(), cause)
+		return errors.Errorf("wait trap: unexpected wait status after wait, exit status %d, signal %d, stop signal %d, trap cause %d, expected trap cause %d", status.ExitStatus(), status.Signal(), status.StopSignal(), status.TrapCause(), cause)
 	}
 }
 
 // Redirects stdout and stderr of the process with PID pid to provided stdoutWriter and stderrWriter.
 // Additionally, it copies original stdout and stderr (before redirect) from the process with PID to
 // this process and returns them. Make sure to close them once you do not need them anymore.
-func redirectStdoutStderr(pid int, stdoutWriter, stderrWriter *os.File) (stdout, stderr *os.File, err error) {
+func redirectStdoutStderr(pid int, stdoutWriter, stderrWriter *os.File) (stdout, stderr *os.File, err errors.E) {
 	t := PtraceTracee{
 		Pid: pid,
 	}
@@ -886,7 +871,7 @@ func redirectStdoutStderr(pid int, stdoutWriter, stderrWriter *os.File) (stdout,
 	}
 	defer func() {
 		err2 := t.Detach()
-		err = errorsJoin(err, err2)
+		err = errors.Join(err, err2)
 	}()
 
 	fds, err := t.GetFds([]int{1, 2})
@@ -937,7 +922,7 @@ func redirectStdoutStderr(pid int, stdoutWriter, stderrWriter *os.File) (stdout,
 // replaceFdForProcessFds copies traceeFds to this process to see which ones if any match
 // from. If match if found, we replace it with to by copying to to the tracee and set it
 // instead of the corresponding traceeFd.
-func replaceFdForProcessFds(pid int, traceeFds []int, from, to *os.File) (err error) {
+func replaceFdForProcessFds(pid int, traceeFds []int, from, to *os.File) (err errors.E) {
 	t := PtraceTracee{
 		Pid: pid,
 	}
@@ -948,7 +933,7 @@ func replaceFdForProcessFds(pid int, traceeFds []int, from, to *os.File) (err er
 	}
 	defer func() {
 		err2 := t.Detach()
-		err = errorsJoin(err, err2)
+		err = errors.Join(err, err2)
 	}()
 
 	hostFds, err := t.GetFds(traceeFds)
@@ -993,21 +978,21 @@ func replaceFdForProcessFds(pid int, traceeFds []int, from, to *os.File) (err er
 // copy those file descriptors to this process. This is inherently racy so we are lenient if after enumeration
 // we do not find some file descriptors from the list.
 // TODO: This replaces only file descriptors for the whole process and not threads which called unshare.
-func replaceFdForProcess(pid int, from, to *os.File) error {
+func replaceFdForProcess(pid int, from, to *os.File) errors.E {
 	fdPath := fmt.Sprintf("/proc/%d/fd", pid)
-	entries, err := os.ReadDir(fdPath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
+	entries, e := os.ReadDir(fdPath)
+	if e != nil {
+		if errors.Is(e, os.ErrNotExist) {
 			return nil
 		}
-		return err
+		return errors.WithStack(e)
 	}
 
 	fds := []int{}
 	for _, entry := range entries {
-		fd, err := strconv.Atoi(entry.Name())
-		if err != nil {
-			return fmt.Errorf("failed to parse fd %s: %w", entry.Name(), err)
+		fd, e := strconv.Atoi(entry.Name())
+		if e != nil {
+			return errors.Errorf("failed to parse fd %s: %w", entry.Name(), e)
 		}
 		fds = append(fds, fd)
 	}
@@ -1015,14 +1000,14 @@ func replaceFdForProcess(pid int, from, to *os.File) error {
 	return replaceFdForProcessFds(pid, fds, from, to)
 }
 
-func equalFds(fd1, fd2 int) (bool, error) {
+func equalFds(fd1, fd2 int) (bool, errors.E) {
 	var stat1 unix.Stat_t
-	err := unix.Fstat(fd1, &stat1)
+	err := errors.WithStack(unix.Fstat(fd1, &stat1))
 	if err != nil {
 		return false, err
 	}
 	var stat2 unix.Stat_t
-	err = unix.Fstat(fd2, &stat2)
+	err = errors.WithStack(unix.Fstat(fd2, &stat2))
 	if err != nil {
 		return false, err
 	}
@@ -1036,10 +1021,10 @@ func equalFds(fd1, fd2 int) (bool, error) {
 // descriptors to this process. This is inherently racy as new children processes might be made after we
 // have enumerated them. Because we replace file descriptors in the parent process before we go to its
 // children we hope that any new children which are made use replaced file descriptors.
-func replaceFdForProcessAndChildren(pid int, name string, from, to *os.File) error {
+func replaceFdForProcessAndChildren(pid int, name string, from, to *os.File) errors.E {
 	eq, err := equalFds(int(from.Fd()), int(to.Fd()))
 	if err != nil {
-		return fmt.Errorf("unable to compare file descriptors: %w", err)
+		return errors.Errorf("unable to compare file descriptors: %w", err)
 	}
 	if eq {
 		// Nothing to replace.
@@ -1056,30 +1041,30 @@ func replaceFdForProcessAndChildren(pid int, name string, from, to *os.File) err
 	}
 
 	taskPath := fmt.Sprintf("/proc/%d/task", pid)
-	entries, err := os.ReadDir(taskPath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
+	entries, e := os.ReadDir(taskPath)
+	if e != nil {
+		if errors.Is(e, os.ErrNotExist) {
 			return nil
 		}
-		return fmt.Errorf("unable to read process tasks from %s: %w", taskPath, err)
+		return errors.Errorf("unable to read process tasks from %s: %w", taskPath, e)
 	}
 
 	for _, entry := range entries {
 		childrenPath := fmt.Sprintf("/proc/%d/task/%s/children", pid, entry.Name())
-		childrenData, err := os.ReadFile(childrenPath)
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
+		childrenData, e := os.ReadFile(childrenPath)
+		if e != nil {
+			if errors.Is(e, os.ErrNotExist) {
 				continue
 			}
-			return fmt.Errorf("unable to read process children from %s: %w", childrenPath, err)
+			return errors.Errorf("unable to read process children from %s: %w", childrenPath, e)
 		}
 		childrenPids := strings.Fields(string(childrenData))
 		for _, childPid := range childrenPids {
-			p, err := strconv.Atoi(childPid)
-			if err != nil {
-				return fmt.Errorf("failed to parse PID %s: %w", childPid, err)
+			p, e := strconv.Atoi(childPid)
+			if e != nil {
+				return errors.Errorf("failed to parse PID %s: %w", childPid, e)
 			}
-			err = replaceFdForProcessAndChildren(p, name, from, to)
+			err := replaceFdForProcessAndChildren(p, name, from, to)
 			if err != nil {
 				return err
 			}
@@ -1092,7 +1077,7 @@ func replaceFdForProcessAndChildren(pid int, name string, from, to *os.File) err
 // The main function to setup redirect of stdout and stderr for a direct child.
 // Moreover, for the direct child and all its descendants it also replaces all
 // file descriptors matching those initial stdout and stderr with redirects as well.
-func ptraceRedirectStdoutStderr(pid int) (stdout, stderr *os.File, err error) {
+func ptraceRedirectStdoutStderr(pid int) (stdout, stderr *os.File, err errors.E) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -1109,14 +1094,16 @@ func ptraceRedirectStdoutStderr(pid int) (stdout, stderr *os.File, err error) {
 		}
 	}()
 
-	stdout, stdoutWriter, err := os.Pipe()
-	if err != nil {
+	stdout, stdoutWriter, e := os.Pipe()
+	if e != nil {
+		err = errors.WithStack(e)
 		return
 	}
 	// Writer is not needed once it is (successfully or not) passed to the adopted process.
 	defer stdoutWriter.Close()
-	stderr, stderrWriter, err := os.Pipe()
-	if err != nil {
+	stderr, stderrWriter, e := os.Pipe()
+	if e != nil {
+		err = errors.WithStack(e)
 		return
 	}
 	// Writer is not needed once it is (successfully or not) passed to the adopted process.
