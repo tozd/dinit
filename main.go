@@ -61,7 +61,7 @@ const reparentingInterval = time.Second
 const reparentingStoppingInterval = reparentingInterval / 10
 
 // How long to wait after SIGTERM to send SIGKILL to a reparented process?
-const reparentingKillTimeout = 30 * time.Second
+var reparentingKillTimeout = 30 * time.Second
 
 const (
 	exitSuccess      = 0
@@ -181,6 +181,16 @@ func main() {
 	default:
 		logErrorf("invalid log level %s", level)
 		os.Exit(exitDinitFailure)
+	}
+
+	killTimeout := os.Getenv("DINIT_KILL_TIMEOUT")
+	if killTimeout != "" {
+		t, err := strconv.ParseInt(killTimeout, 0, 64)
+		if err != nil {
+			logErrorf("invalid kill timeout %s", killTimeout)
+			os.Exit(exitDinitFailure)
+		}
+		reparentingKillTimeout = time.Duration(t * int64(time.Second))
 	}
 
 	if pid := mainPid; pid != 1 {
