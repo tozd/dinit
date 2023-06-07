@@ -72,43 +72,51 @@ const (
 
 var procStatRegexp = regexp.MustCompile(`\((.*)\) (.)`)
 
-// TODO: Output milliseconds. See: https://github.com/golang/go/issues/60249
-const logFlags = log.Ldate | log.Ltime | log.LUTC
+// We manually prefix logging.
+const logFlags = 0
 
 type policyFunc = func(ctx context.Context, g *errgroup.Group, pid int) errors.E
 
 var debugLog = false
 
+func timestamp() string {
+	now := time.Now().UTC()
+	buffer := strings.Builder{}
+	timeBuffer := make([]byte, 30)
+	buffer.Write(now.AppendFormat(timeBuffer, "2006-01-02T15:04:05.000Z07:00"))
+	return buffer.String()
+}
+
 var logDebug = func(msg any) {
-	log.Printf("dinit: debug: %s", msg)
+	log.Printf(timestamp()+" dinit: debug: %s", msg)
 }
 
 var logDebugf = func(msg string, args ...any) {
-	log.Printf("dinit: debug: "+msg, args...)
+	log.Printf(timestamp()+" dinit: debug: "+msg, args...)
 }
 
 var logInfo = func(msg any) {
-	log.Printf("dinit: info: %s", msg)
+	log.Printf(timestamp()+" dinit: info: %s", msg)
 }
 
 var logInfof = func(msg string, args ...any) {
-	log.Printf("dinit: info: "+msg, args...)
+	log.Printf(timestamp()+" dinit: info: "+msg, args...)
 }
 
 var logWarn = func(msg any) {
-	log.Printf("dinit: warning: %s", msg)
+	log.Printf(timestamp()+" dinit: warning: %s", msg)
 }
 
 var logWarnf = func(msg string, args ...any) {
-	log.Printf("dinit: warning: "+msg, args...)
+	log.Printf(timestamp()+" dinit: warning: "+msg, args...)
 }
 
 var logError = func(msg any) {
-	log.Printf("dinit: error: %s", msg)
+	log.Printf(timestamp()+" dinit: error: %s", msg)
 }
 
 var logErrorf = func(msg string, args ...any) {
-	log.Printf("dinit: error: "+msg, args...)
+	log.Printf(timestamp()+" dinit: error: "+msg, args...)
 }
 
 func processNotExist(err error) bool {
@@ -369,7 +377,7 @@ func redirectToLogWithPrefix(l *log.Logger, stage, name, input string, reader io
 		res = scanner.Scan()
 		line := scanner.Text()
 		if len(line) > 0 {
-			l.Printf("%s/%s: %s\n", name, stage, line)
+			l.Printf("%s %s/%s: %s\n", timestamp(), name, stage, line)
 		}
 	}
 
