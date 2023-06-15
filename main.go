@@ -611,7 +611,7 @@ func runService(ctx context.Context, g *errgroup.Group, name, p string) errors.E
 	}
 
 	// When the service finishes (which is when this function returns)
-	// we finish all other services as well and exit ourselves.
+	// we finish all other services as well and exit the program.
 	defer mainCancel()
 
 	logInfof("%s/run: running with PID %d", name, cmd.Process.Pid)
@@ -634,10 +634,108 @@ func runService(ctx context.Context, g *errgroup.Group, name, p string) errors.E
 		}
 	})
 
-	return doRedirectAndWait(ctx, cmd.Process.Pid, func() (*os.ProcessState, errors.E) {
+	// We pass stdout through the log program of the service, if one exists.
+	stdout, err = logService(ctx, g, name, jsonName, p, stdout)
+	if err != nil {
+		if debugLog {
+			logErrorf("%s/log: error running: %+v", name, err)
+		} else {
+			logErrorf("%s/log: error running: %s", name, err)
+		}
+		// We already logged the error, so we pass nil here.
+		maybeSetExitCode(exitDinitFailure, nil)
+		// Let's stop everything. We do not return here but continue to wait for the service
+		// itself to finish, which should finish after we called mainCancel anyway.
+		mainCancel()
+	}
+
+	err2 := doRedirectAndWait(ctx, cmd.Process.Pid, func() (*os.ProcessState, errors.E) {
 		err := errors.WithStack(cmd.Wait())
 		return cmd.ProcessState, err
 	}, "run", name, jsonName, stdout, stderr)
+
+	return errors.Join(err, err2)
+}
+
+// logService runs the log program if it exists and passes service's stdout to its stdin.
+// If starting the log program fails for any reason (except if the program does not exist),
+// logService returns nil for new stdout.
+func logService(ctx context.Context, g *errgroup.Group, name string, jsonName []byte, p string, serviceStdout *os.File) (*os.File, errors.E) {
+	r := path.Join(p, "log", "run")
+
+	_, e := os.Stat(r)
+	// If log program does not exist, we just return.
+	if errors.Is(e, os.ErrNotExist) {
+		return serviceStdout, nil
+	}
+
+	logInfof("%s/log: starting", name)
+
+	cmd := exec.Command(r)
+	cmd.Stdin = serviceStdout
+	cmd.Dir = path.Join(p, "log")
+
+	// We do not use StdoutPipe and StderrPipe so that we can control when pipe is closed.
+	// See: https://github.com/golang/go/issues/60309
+	// See: https://go-review.googlesource.com/c/tools/+/484741
+	stdout, stdoutWriter, e := os.Pipe()
+	if e != nil {
+		err := errors.WithStack(e)
+		maybeSetExitCode(exitDinitFailure, err)
+		return nil, err
+	}
+	cmd.Stdout = stdoutWriter
+	stderr, stderrWriter, e := os.Pipe()
+	if e != nil {
+		err := errors.WithStack(e)
+		maybeSetExitCode(exitDinitFailure, err)
+		return nil, err
+	}
+	cmd.Stderr = stderrWriter
+
+	err := cmdRun(cmd)
+
+	// The child process has inherited the pipe file, so close the copy held in this process.
+	stdoutWriter.Close()
+	stdoutWriter = nil
+	stderrWriter.Close()
+	stderrWriter = nil
+
+	if err != nil {
+		// These will not be used.
+		stdout.Close()
+		stderr.Close()
+
+		// Even if log program does not exist at this point, we
+		// still return the error because it existed above.
+
+		maybeSetExitCode(exitDinitFailure, err)
+		return nil, err
+	}
+
+	logInfof("%s/log: running with PID %d", name, cmd.Process.Pid)
+
+	// We do not cancel the process if context is canceled. We instead leave to
+	// the process to exit by itself when its stdin (service's stdout) gets closed.
+	knownRunningChildren.Add(1)
+	g.Go(func() error {
+		defer knownRunningChildren.Add(-1)
+
+		defer removeRunningChildPid(cmd.Process.Pid)
+
+		// When the log process finishes (which is when this goroutine returns)
+		// we finish all other services as well and exit the program.
+		defer mainCancel()
+
+		// We do not pass stdout here but return it so that it is redirected with the run stage.
+		return doRedirectAndWait(ctx, cmd.Process.Pid, func() (*os.ProcessState, errors.E) {
+			err := errors.WithStack(cmd.Wait())
+			return cmd.ProcessState, err
+		}, "log", name, jsonName, nil, stderr)
+	})
+
+	// We return stdout here so that it is redirected with the run stage.
+	return stdout, nil
 }
 
 var processedPids = map[int]bool{}
@@ -853,7 +951,7 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) errors.E 
 	}
 
 	// When adopting, then when the process stops (which is when this function returns)
-	// we stop all other services and exit ourselves.
+	// we stop all other services and exit the program.
 	defer mainCancel()
 
 	p, _ := os.FindProcess(pid) // This call cannot fail.
