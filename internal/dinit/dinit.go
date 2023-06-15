@@ -85,7 +85,7 @@ func timestamp() string {
 	return time.Now().UTC().Format("2006-01-02T15:04:05.000Z07:00")
 }
 
-var logDebug = func(msg any) {
+var logDebug = func(msg any) { //nolint:unused
 	log.Printf(timestamp()+" dinit: debug: %s", msg)
 }
 
@@ -93,7 +93,7 @@ var logDebugf = func(msg string, args ...any) {
 	log.Printf(timestamp()+" dinit: debug: "+msg, args...)
 }
 
-var logInfo = func(msg any) {
+var logInfo = func(msg any) { //nolint:unused
 	log.Printf(timestamp()+" dinit: info: %s", msg)
 }
 
@@ -109,7 +109,7 @@ var logWarnf = func(msg string, args ...any) {
 	log.Printf(timestamp()+" dinit: warning: "+msg, args...)
 }
 
-var logError = func(msg any) {
+var logError = func(msg any) { //nolint:unused
 	log.Printf(timestamp()+" dinit: error: %s", msg)
 }
 
@@ -126,7 +126,7 @@ var mainContext, mainCancel = context.WithCancel(context.Background())
 var mainPid = os.Getpid()
 
 var (
-	exitCode   *int = nil
+	exitCode   *int
 	exitCodeMu sync.Mutex
 )
 
@@ -239,16 +239,12 @@ func Main() {
 	// (and any they additionally created while running), no more goroutines will be
 	// added to the g errgroup.
 	err := errors.WithStack(g.Wait())
-	if err != nil {
-		if errors.Is(err, context.Canceled) {
-			// Nothing.
+	if err != nil && !errors.Is(err, context.Canceled) {
+		maybeSetExitCode(exitDinitFailure, nil)
+		if debugLog {
+			logErrorf("exiting: %+v", err)
 		} else {
-			maybeSetExitCode(exitDinitFailure, nil)
-			if debugLog {
-				logErrorf("exiting: %+v", err)
-			} else {
-				logErrorf("exiting: %s", err)
-			}
+			logErrorf("exiting: %s", err)
 		}
 	}
 
@@ -462,17 +458,17 @@ func doRedirectAndWait(ctx context.Context, pid int, wait func() (*os.ProcessSta
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			// If we are here, process finished successfully but the context has been canceled so err was set, so we just ignore the err.
-			status = state.Sys().(syscall.WaitStatus)
+			status = state.Sys().(syscall.WaitStatus) //nolint:errcheck
 		} else if state != nil && !state.Success() {
 			// This is a condition in Wait when err is set when process fails, so we just ignore the err.
-			status = state.Sys().(syscall.WaitStatus)
+			status = state.Sys().(syscall.WaitStatus) //nolint:errcheck
 		} else {
 			err = errors.Errorf("%s/%s: error waiting for the process: %w", name, stage, err)
 			maybeSetExitCode(exitDinitFailure, err)
 			return err
 		}
 	} else {
-		status = state.Sys().(syscall.WaitStatus)
+		status = state.Sys().(syscall.WaitStatus) //nolint:errcheck
 	}
 
 	if status.Exited() {
@@ -482,7 +478,7 @@ func doRedirectAndWait(ctx context.Context, pid int, wait func() (*os.ProcessSta
 		logInfof("%s/%s: PID %d finished with status %d", name, stage, pid, status.ExitStatus())
 	} else {
 		// If process finished because of the signal but we have not been stopping it, we see it is as a process error.
-		if ctx == nil || ctx.Err() == nil {
+		if ctx.Err() == nil {
 			maybeSetExitCode(exitServiceFailure, nil)
 		}
 		logInfof("%s/%s: PID %d finished with signal %d", name, stage, pid, status.Signal())
@@ -522,9 +518,9 @@ func finishService(runCmd *exec.Cmd, name string, jsonName []byte, p string) err
 
 	// The child process has inherited the pipe file, so close the copy held in this process.
 	stdoutWriter.Close()
-	stdoutWriter = nil
+	stdoutWriter = nil //nolint:wastedassign
 	stderrWriter.Close()
-	stderrWriter = nil
+	stderrWriter = nil //nolint:wastedassign
 
 	if err != nil {
 		// These will not be used.
@@ -554,7 +550,7 @@ func finishService(runCmd *exec.Cmd, name string, jsonName []byte, p string) err
 
 	logInfof("%s/finish: running with PID %d", name, cmd.Process.Pid)
 
-	return doRedirectAndWait(nil, cmd.Process.Pid, func() (*os.ProcessState, errors.E) {
+	return doRedirectAndWait(context.Background(), cmd.Process.Pid, func() (*os.ProcessState, errors.E) {
 		err := errors.WithStack(cmd.Wait())
 		return cmd.ProcessState, err
 	}, "finish", name, jsonName, stdout, stderr)
@@ -603,9 +599,9 @@ func runService(ctx context.Context, g *errgroup.Group, name, p string) errors.E
 
 	// The child process has inherited the pipe file, so close the copy held in this process.
 	stdoutWriter.Close()
-	stdoutWriter = nil
+	stdoutWriter = nil //nolint:wastedassign
 	stderrWriter.Close()
-	stderrWriter = nil
+	stderrWriter = nil //nolint:wastedassign
 
 	if err != nil {
 		// These will not be used.
@@ -703,9 +699,9 @@ func logService(ctx context.Context, g *errgroup.Group, name string, jsonName []
 
 	// The child process has inherited the pipe file, so close the copy held in this process.
 	stdoutWriter.Close()
-	stdoutWriter = nil
+	stdoutWriter = nil //nolint:wastedassign
 	stderrWriter.Close()
-	stderrWriter = nil
+	stderrWriter = nil //nolint:wastedassign
 
 	if err != nil {
 		// These will not be used.
@@ -833,10 +829,8 @@ func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) erro
 				maybeSetExitCode(exitDinitFailure, err)
 				return err
 			}
-			if hasRunningChildPid(p) {
-				// This is our own child.
-			} else {
-				// Unknown PID. We call configured policy.
+			if !hasRunningChildPid(p) {
+				// If this is not our own child we call configured policy.
 				processPid(ctx, g, policy, p)
 			}
 		}
@@ -1047,15 +1041,13 @@ func reapZombie(p *os.Process, name, stage, cmdline string) errors.E {
 }
 
 func doWait(p *os.Process, name, stage string) errors.E {
-	var status syscall.WaitStatus
 	state, e := p.Wait()
 	if e != nil {
 		err := errors.Errorf("%s/%s: error waiting for the process: %w", name, stage, e)
 		maybeSetExitCode(exitDinitFailure, err)
 		return err
-	} else {
-		status = state.Sys().(syscall.WaitStatus)
 	}
+	status := state.Sys().(syscall.WaitStatus) //nolint:errcheck
 
 	if status.Exited() {
 		logInfof("%s/%s: PID %d finished with status %d", name, stage, p.Pid, status.ExitStatus())
