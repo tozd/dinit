@@ -498,57 +498,18 @@ func (t *Tracee) sysDup2(oldFd, newFd int) errors.E {
 // connect syscall in the tracee for AF_UNIX socket path. If path starts with @, it is replaced
 // with null character to connect to an abstract unix domain socket.
 func (t *Tracee) sysConnectUnix(fd int, path string) errors.E {
-	_, err := t.doSyscall(true, unix.SYS_CONNECT, func(start uint64) ([]byte, [6]uint64, errors.E) {
-		buf := new(bytes.Buffer)
-		// We build unix.RawSockaddrUnix in the buffer.
-		// Family field.
-		e := binary.Write(buf, binary.LittleEndian, uint16(unix.AF_UNIX))
-		if e != nil {
-			return nil, [6]uint64{}, errors.WithStack(e)
-		}
-		p := []byte(path)
-		abstract := false
-		// If it starts with @, it is an abstract unix domain socket.
-		// We change @ to a null character.
-		if p[0] == '@' {
-			p[0] = 0
-			abstract = true
-		} else if p[0] == 0 {
-			abstract = true
-		}
-		// Path field.
-		e = binary.Write(buf, binary.LittleEndian, p)
-		if e != nil {
-			return nil, [6]uint64{}, errors.WithStack(e)
-		}
-		if !abstract {
-			// If not abstract, then write a null character.
-			e = binary.Write(buf, binary.LittleEndian, uint8(0))
-			if e != nil {
-				return nil, [6]uint64{}, errors.WithStack(e)
-			}
-		}
-		// Sanity check.
-		if uint64(buf.Len()) > uint64(unsafe.Sizeof(unix.RawSockaddrUnix{})) {
-			return nil, [6]uint64{}, errors.Errorf("path too long")
-		}
-		payload := buf.Bytes()
-		return payload, [6]uint64{
-			uint64(fd),           // sockfd.
-			start,                // addr.
-			uint64(len(payload)), // addrlen.
-		}, nil
-	})
-	if err != nil {
-		err = errors.Errorf("sys connect unix: %w", err)
-	}
-	return err
+	return t.connectOrBindUnix(unix.SYS_CONNECT, "connect", fd, path)
 }
 
 // bind syscall in the tracee for AF_UNIX socket path. If path starts with @, it is replaced
 // with null character to bind to an abstract unix domain socket.
 func (t *Tracee) sysBindUnix(fd int, path string) errors.E {
-	_, err := t.doSyscall(true, unix.SYS_BIND, func(start uint64) ([]byte, [6]uint64, errors.E) {
+	return t.connectOrBindUnix(unix.SYS_BIND, "bind", fd, path)
+}
+
+// Both connect and bind system calls take the same arguments, so we have one method for both.
+func (t *Tracee) connectOrBindUnix(call int, name string, fd int, path string) errors.E {
+	_, err := t.doSyscall(true, call, func(start uint64) ([]byte, [6]uint64, errors.E) {
 		buf := new(bytes.Buffer)
 		// We build unix.RawSockaddrUnix in the buffer.
 		// Family field.
@@ -590,7 +551,7 @@ func (t *Tracee) sysBindUnix(fd int, path string) errors.E {
 		}, nil
 	})
 	if err != nil {
-		err = errors.Errorf("sys connect unix: %w", err)
+		err = errors.Errorf("sys %s unix: %w", name, err)
 	}
 	return err
 }
