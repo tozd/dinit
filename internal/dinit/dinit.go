@@ -65,6 +65,8 @@ const reparentingStoppingInterval = reparentingInterval / 10
 // How long to wait after SIGTERM to send SIGKILL to a reparented process?
 var reparentingKillTimeout = 30 * time.Second
 
+const RFC3339Milli = "2006-01-02T15:04:05.000Z07:00"
+
 const (
 	exitSuccess      = 0
 	exitDinitFailure = 1
@@ -82,7 +84,7 @@ type policyFunc = func(ctx context.Context, g *errgroup.Group, pid int) errors.E
 var debugLog = false
 
 func timestamp() string {
-	return time.Now().UTC().Format("2006-01-02T15:04:05.000Z07:00")
+	return time.Now().UTC().Format(RFC3339Milli)
 }
 
 var logDebug = func(msg any) { //nolint:unused
@@ -255,7 +257,7 @@ func Main() {
 
 func handleStopSignals() {
 	// We do not handle SIGQUIT because that is handled specially by Go runtime.
-	c := make(chan os.Signal, 2)
+	c := make(chan os.Signal, 2) //nolint:gomnd
 	signal.Notify(c, unix.SIGTERM, unix.SIGINT)
 	for s := range c {
 		if mainContext.Err() != nil {
@@ -398,7 +400,7 @@ func redirectJSON(stage, name string, jsonName []byte, reader io.ReadCloser) {
 	defer reader.Close()
 
 	scanner := bufio.NewScanner(reader)
-	timeBuffer := make([]byte, 0, 30)
+	timeBuffer := make([]byte, 0, len(RFC3339Milli))
 
 	res := true
 	for res {
@@ -416,7 +418,7 @@ func redirectJSON(stage, name string, jsonName []byte, reader io.ReadCloser) {
 				buffer.WriteString(`,"stage":"`)
 				buffer.WriteString(stage)
 				buffer.WriteString(`","logged":"`)
-				buffer.Write(now.AppendFormat(timeBuffer, "2006-01-02T15:04:05.000Z07:00"))
+				buffer.Write(now.AppendFormat(timeBuffer, RFC3339Milli))
 				buffer.WriteString(`"}`)
 				buffer.WriteString("\n")
 				_, e := os.Stdout.Write(buffer.Bytes())
@@ -536,7 +538,7 @@ func finishService(runCmd *exec.Cmd, name string, jsonName []byte, p string) err
 				if processNotExist(e) {
 					return nil
 				}
-				err := errors.WithStack(e)
+				err = errors.WithStack(e)
 				maybeSetExitCode(exitDinitFailure, err)
 				return err
 			}
@@ -628,7 +630,7 @@ func runService(ctx context.Context, g *errgroup.Group, name, p string) errors.E
 
 		select {
 		case <-ctx.Done():
-			return finishService(cmd, name, jsonName, p)
+			return finishService(cmd, name, jsonName, p) //nolint:contextcheck
 		case <-done:
 			// The process finished or there was an error waiting for it.
 			// In any case we do not have anything to do anymore.
@@ -652,8 +654,7 @@ func runService(ctx context.Context, g *errgroup.Group, name, p string) errors.E
 	}
 
 	err2 := doRedirectAndWait(ctx, cmd.Process.Pid, func() (*os.ProcessState, errors.E) {
-		err := errors.WithStack(cmd.Wait())
-		return cmd.ProcessState, err
+		return cmd.ProcessState, errors.WithStack(cmd.Wait())
 	}, "run", name, jsonName, stdout, stderr)
 
 	return errors.Join(err, err2)
@@ -875,7 +876,7 @@ func isZombie(pid int) (bool, errors.E) {
 		return false, errors.WithStack(e)
 	}
 	match := procStatRegexp.FindSubmatch(statData)
-	if len(match) != 3 {
+	if len(match) != 3 { //nolint:gomnd
 		return false, errors.Errorf("could not match process state in %s: %s", statPath, statData)
 	}
 	return string(match[2]) == "Z", nil
@@ -893,7 +894,7 @@ func getProcessProgramName(pid int) (string, errors.E) {
 		return "", errors.WithStack(e)
 	}
 	match := procStatRegexp.FindSubmatch(statData)
-	if len(match) != 3 {
+	if len(match) != 3 { //nolint:gomnd
 		return "", errors.Errorf("could not match executable name in %s: %s", statPath, statData)
 	}
 	return string(match[1]), nil
@@ -947,7 +948,7 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) errors.E 
 	}
 	jsonName, e := json.Marshal(name)
 	if e != nil {
-		err := errors.WithStack(e)
+		err = errors.WithStack(e)
 		maybeSetExitCode(exitDinitFailure, err)
 		return err
 	}

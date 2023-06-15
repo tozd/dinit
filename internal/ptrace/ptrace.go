@@ -560,11 +560,11 @@ func (t *Tracee) connectOrBindUnix(call int, name string, fd int, path string) e
 func (t *Tracee) sysSendmsg(fd int, p, oob []byte, flags int) (int, int, errors.E) {
 	var payload []byte
 	res, err := t.doSyscall(true, unix.SYS_SENDMSG, func(start uint64) ([]byte, [6]uint64, errors.E) {
-		offset, p, err := newMsghrd(start, p, oob)
+		offset, pl, err := newMsghrd(start, p, oob)
 		if err != nil {
 			return nil, [6]uint64{}, err
 		}
-		payload = p
+		payload = pl
 		return payload, [6]uint64{
 			uint64(fd),     // sockfd.
 			start + offset, // msg.
@@ -578,14 +578,16 @@ func (t *Tracee) sysSendmsg(fd int, p, oob []byte, flags int) (int, int, errors.
 }
 
 // recvmsg syscall in the tracee.
+//
+//nolint:gomnd
 func (t *Tracee) sysRecvmsg(fd int, p, oob []byte, flags int) (int, int, int, errors.E) {
 	var payload []byte
 	res, err := t.doSyscall(true, unix.SYS_RECVMSG, func(start uint64) ([]byte, [6]uint64, errors.E) {
-		offset, p, err := newMsghrd(start, p, oob)
+		offset, pl, err := newMsghrd(start, p, oob)
 		if err != nil {
 			return nil, [6]uint64{}, err
 		}
-		payload = p
+		payload = pl
 		return payload, [6]uint64{
 			uint64(fd),     // sockfd.
 			start + offset, // msg.
@@ -835,6 +837,8 @@ func (t *Tracee) waitTrap(cause int) errors.E {
 // Redirects stdout and stderr of the process with PID pid to provided stdoutWriter and stderrWriter.
 // Additionally, it copies original stdout and stderr (before redirect) from the process with PID to
 // this process and returns them. Make sure to close them once you do not need them anymore.
+//
+//nolint:nakedret
 func redirectStdoutStderr(pid int, stdoutWriter, stderrWriter *os.File) (stdout, stderr *os.File, err errors.E) {
 	t := Tracee{
 		Pid: pid,
@@ -886,7 +890,7 @@ func redirectStdoutStderr(pid int, stdoutWriter, stderrWriter *os.File) (stdout,
 	if err != nil {
 		return
 	}
-	err = t.SetFd(int(stderrWriter.Fd()), 2)
+	err = t.SetFd(int(stderrWriter.Fd()), 2) //nolint:gomnd
 	if err != nil {
 		return
 	}
@@ -897,6 +901,8 @@ func redirectStdoutStderr(pid int, stdoutWriter, stderrWriter *os.File) (stdout,
 // replaceFdForProcessFds copies traceeFds to this process to see which ones if any match
 // "from". If match is found, we replace it with "to" by copying "to" to the tracee and set it
 // instead of the corresponding traceeFd.
+//
+//nolint:nakedret
 func replaceFdForProcessFds(debugLog bool, logWarnf func(msg string, args ...any), pid int, traceeFds []int, from, to *os.File) (err errors.E) {
 	t := Tracee{
 		Pid:      pid,
@@ -1054,6 +1060,8 @@ func replaceFdForProcessAndChildren(debugLog bool, logWarnf func(msg string, arg
 // The main function to setup redirect of stdout and stderr for a direct child.
 // Moreover, for the direct child and all its descendants it also replaces all
 // file descriptors matching those initial stdout and stderr with redirects as well.
+//
+//nolint:nakedret
 func RedirectStdoutStderr(debugLog bool, logWarnf func(msg string, args ...any), pid int) (stdout, stderr *os.File, err errors.E) {
 	defer func() {
 		if err != nil {
