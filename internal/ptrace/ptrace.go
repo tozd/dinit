@@ -121,8 +121,8 @@ func newMsghrd(start uint64, p, oob []byte) (uint64, []byte, errors.E) {
 type Tracee struct {
 	Pid           int
 	memoryAddress uint64
-	debugLog      bool
-	logWarnf      func(msg string, args ...any)
+	DebugLog      bool
+	LogWarnf      func(msg string, args ...any)
 }
 
 // Attach attaches to the tracee and allocates private working memory in it.
@@ -814,7 +814,7 @@ func (t *Tracee) waitTrap(cause int) errors.E {
 		if status.TrapCause() == cause {
 			return nil
 		} else if status.TrapCause() != -1 {
-			t.logWarnf("unexpected trap cause for PID %d: %d, expected %d", t.Pid, status.TrapCause(), cause)
+			t.LogWarnf("unexpected trap cause for PID %d: %d, expected %d", t.Pid, status.TrapCause(), cause)
 			return nil
 		} else if status.Stopped() {
 			// If the tracee stopped it might have stopped for some other signal. While a tracee is
@@ -839,9 +839,11 @@ func (t *Tracee) waitTrap(cause int) errors.E {
 // this process and returns them. Make sure to close them once you do not need them anymore.
 //
 //nolint:nakedret
-func redirectStdoutStderr(pid int, stdoutWriter, stderrWriter *os.File) (stdout, stderr *os.File, err errors.E) {
+func RedirectStdoutStderr(debugLog bool, logWarnf func(msg string, args ...any), pid int, stdoutWriter, stderrWriter *os.File) (stdout, stderr *os.File, err errors.E) {
 	t := Tracee{
-		Pid: pid,
+		Pid:      pid,
+		DebugLog: debugLog,
+		LogWarnf: logWarnf,
 	}
 
 	err = t.Attach()
@@ -906,8 +908,8 @@ func redirectStdoutStderr(pid int, stdoutWriter, stderrWriter *os.File) (stdout,
 func replaceFdForProcessFds(debugLog bool, logWarnf func(msg string, args ...any), pid int, traceeFds []int, from, to *os.File) (err errors.E) {
 	t := Tracee{
 		Pid:      pid,
-		debugLog: debugLog,
-		logWarnf: logWarnf,
+		DebugLog: debugLog,
+		LogWarnf: logWarnf,
 	}
 
 	err = t.Attach()
@@ -1062,7 +1064,7 @@ func replaceFdForProcessAndChildren(debugLog bool, logWarnf func(msg string, arg
 // file descriptors matching those initial stdout and stderr with redirects as well.
 //
 //nolint:nakedret
-func RedirectStdoutStderr(debugLog bool, logWarnf func(msg string, args ...any), pid int) (stdout, stderr *os.File, err errors.E) {
+func RedirectAllStdoutStderr(debugLog bool, logWarnf func(msg string, args ...any), pid int) (stdout, stderr *os.File, err errors.E) {
 	defer func() {
 		if err != nil {
 			if stdout != nil {
@@ -1091,7 +1093,7 @@ func RedirectStdoutStderr(debugLog bool, logWarnf func(msg string, args ...any),
 	// Writer is not needed once it is (successfully or not) passed to the adopted process.
 	defer stderrWriter.Close()
 
-	originalStdout, originalStderr, err := redirectStdoutStderr(pid, stdoutWriter, stderrWriter)
+	originalStdout, originalStderr, err := RedirectStdoutStderr(debugLog, logWarnf, pid, stdoutWriter, stderrWriter)
 	if err != nil {
 		return
 	}

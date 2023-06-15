@@ -507,6 +507,10 @@ func finishService(runCmd *exec.Cmd, name string, jsonName []byte, p string) err
 	cmd.Stdout = stdoutWriter
 	stderr, stderrWriter, e := os.Pipe()
 	if e != nil {
+		// This will not be used.
+		stdout.Close()
+		stdoutWriter.Close()
+
 		err := errors.WithStack(e)
 		maybeSetExitCode(exitDinitFailure, err)
 		return err
@@ -690,6 +694,10 @@ func logService(ctx context.Context, g *errgroup.Group, name string, jsonName []
 	cmd.Stdout = stdoutWriter
 	stderr, stderrWriter, e := os.Pipe()
 	if e != nil {
+		// This will not be used.
+		stdout.Close()
+		stdoutWriter.Close()
+
 		err := errors.WithStack(e)
 		maybeSetExitCode(exitDinitFailure, err)
 		return nil, err
@@ -988,7 +996,7 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) errors.E 
 	setRunningChildPid(pid, true)
 	defer removeRunningChildPid(pid)
 
-	stdout, stderr, err := ptrace.RedirectStdoutStderr(debugLog, logWarnf, pid)
+	stdout, stderr, err := ptrace.RedirectAllStdoutStderr(debugLog, logWarnf, pid)
 	if err != nil {
 		if debugLog {
 			logWarnf("%s/%s: error redirecting stdout and stderr: %+v", name, stage, err)
