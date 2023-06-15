@@ -973,7 +973,7 @@ func replaceFdForProcessFds(pid int, traceeFds []int, from, to *os.File) (err er
 	return
 }
 
-// replaceFdForProcess enumerates all file descriptors the process with pid has and replaceFdForProcessFds
+// replaceFdForProcess enumerates all file descriptors the process with pid has and calls replaceFdForProcessFds
 // with the list to see if any of enumerated file descriptors matches from. To do the matching we have to
 // copy those file descriptors to this process. This is inherently racy so we are lenient if after enumeration
 // we do not find some file descriptors from the list.
@@ -1020,7 +1020,7 @@ func equalFds(fd1, fd2 int) (bool, errors.E) {
 // descriptor matching from, which we then replace with to. To do the matching we have to copy all file
 // descriptors to this process. This is inherently racy as new children processes might be made after we
 // have enumerated them. Because we replace file descriptors in the parent process before we go to its
-// children we hope that any new children which are made use replaced file descriptors.
+// children we hope that any new children which are made while this function runs use replaced file descriptors.
 func replaceFdForProcessAndChildren(pid int, name string, from, to *os.File) errors.E {
 	eq, err := equalFds(int(from.Fd()), int(to.Fd()))
 	if err != nil {
