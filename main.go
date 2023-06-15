@@ -80,11 +80,7 @@ type policyFunc = func(ctx context.Context, g *errgroup.Group, pid int) errors.E
 var debugLog = false
 
 func timestamp() string {
-	now := time.Now().UTC()
-	buffer := strings.Builder{}
-	timeBuffer := make([]byte, 30)
-	buffer.Write(now.AppendFormat(timeBuffer, "2006-01-02T15:04:05.000Z07:00"))
-	return buffer.String()
+	return time.Now().UTC().Format("2006-01-02T15:04:05.000Z07:00")
 }
 
 var logDebug = func(msg any) {
@@ -400,7 +396,7 @@ func redirectJSON(stage, name string, jsonName []byte, reader io.ReadCloser) {
 	defer reader.Close()
 
 	scanner := bufio.NewScanner(reader)
-	timeBuffer := make([]byte, 30)
+	timeBuffer := make([]byte, 0, 30)
 
 	res := true
 	for res {
