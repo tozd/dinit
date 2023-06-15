@@ -125,8 +125,10 @@ var mainContext, mainCancel = context.WithCancel(context.Background())
 
 var mainPid = os.Getpid()
 
-var exitCode *int = nil
-var exitCodeMu sync.Mutex
+var (
+	exitCode   *int = nil
+	exitCodeMu sync.Mutex
+)
 
 func callers() []uintptr {
 	const depth = 32
@@ -278,8 +280,10 @@ func handleStopSignals() {
 var knownRunningChildren = atomic.Int32{}
 
 // A map of running sub-processes we started or adopted.
-var runningChildren = map[int]bool{}
-var runningChildrenMu sync.RWMutex
+var (
+	runningChildren   = map[int]bool{}
+	runningChildrenMu sync.RWMutex
+)
 
 func setRunningChildPid(pid int, lock bool) {
 	if lock {
@@ -740,8 +744,10 @@ func logService(ctx context.Context, g *errgroup.Group, name string, jsonName []
 	return stdout, nil
 }
 
-var processedPids = map[int]bool{}
-var processedPidsMu sync.Mutex
+var (
+	processedPids   = map[int]bool{}
+	processedPidsMu sync.Mutex
+)
 
 // processPid could be called multiple times on the same PID (of the same process) so
 // it has to make sure it behaves well if that happens.
