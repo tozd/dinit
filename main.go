@@ -605,11 +605,7 @@ func runService(ctx context.Context, g *errgroup.Group, name, p string) errors.E
 		stdout.Close()
 		stderr.Close()
 
-		// Start can fail when context is canceled, but we do not want to set
-		// the exit code because of the cancellation.
-		if !errors.Is(err, context.Canceled) {
-			maybeSetExitCode(exitDinitFailure, err)
-		}
+		maybeSetExitCode(exitDinitFailure, err)
 		return err
 	}
 
