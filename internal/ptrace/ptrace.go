@@ -393,12 +393,12 @@ func (t *PtraceTracee) allocateMemory() (uint64, errors.E) {
 	addr, err := t.doSyscall(false, unix.SYS_MMAP, func(start uint64) ([]byte, [6]uint64, errors.E) {
 		fd := -1
 		return nil, [6]uint64{
-			0,          // addr
-			memorySize, // length
-			unix.PROT_EXEC | unix.PROT_READ | unix.PROT_WRITE, // prot
-			unix.MAP_PRIVATE | unix.MAP_ANONYMOUS,             // flags
-			uint64(fd),                                        // fd
-			0,                                                 // offset
+			0,          // addr.
+			memorySize, // length.
+			unix.PROT_EXEC | unix.PROT_READ | unix.PROT_WRITE, // prot.
+			unix.MAP_PRIVATE | unix.MAP_ANONYMOUS,             // flags.
+			uint64(fd),                                        // fd.
+			0,                                                 // offset.
 		}, nil
 	})
 	if err != nil {
@@ -411,8 +411,8 @@ func (t *PtraceTracee) allocateMemory() (uint64, errors.E) {
 func (t *PtraceTracee) freeMemory(address uint64) errors.E {
 	_, err := t.doSyscall(false, unix.SYS_MUNMAP, func(start uint64) ([]byte, [6]uint64, errors.E) {
 		return nil, [6]uint64{
-			address,    // addr
-			memorySize, // length
+			address,    // addr.
+			memorySize, // length.
 		}, nil
 	})
 	if err != nil {
@@ -425,9 +425,9 @@ func (t *PtraceTracee) freeMemory(address uint64) errors.E {
 func (t *PtraceTracee) sysSocket(domain, typ, proto int) (int, errors.E) {
 	fd, err := t.doSyscall(true, unix.SYS_SOCKET, func(start uint64) ([]byte, [6]uint64, errors.E) {
 		return nil, [6]uint64{
-			uint64(domain), // domain
-			uint64(typ),    // type
-			uint64(proto),  // protocol
+			uint64(domain), // domain.
+			uint64(typ),    // type.
+			uint64(proto),  // protocol.
 		}, nil
 	})
 	if err != nil {
@@ -440,7 +440,7 @@ func (t *PtraceTracee) sysSocket(domain, typ, proto int) (int, errors.E) {
 func (t *PtraceTracee) sysClose(fd int) errors.E {
 	_, err := t.doSyscall(true, unix.SYS_CLOSE, func(start uint64) ([]byte, [6]uint64, errors.E) {
 		return nil, [6]uint64{
-			uint64(fd), // fd
+			uint64(fd), // fd.
 		}, nil
 	})
 	if err != nil {
@@ -453,8 +453,8 @@ func (t *PtraceTracee) sysClose(fd int) errors.E {
 func (t *PtraceTracee) sysListen(fd, backlog int) errors.E {
 	_, err := t.doSyscall(true, unix.SYS_LISTEN, func(start uint64) ([]byte, [6]uint64, errors.E) {
 		return nil, [6]uint64{
-			uint64(fd),      // sockfd
-			uint64(backlog), // backlog
+			uint64(fd),      // sockfd.
+			uint64(backlog), // backlog.
 		}, nil
 	})
 	if err != nil {
@@ -467,10 +467,10 @@ func (t *PtraceTracee) sysListen(fd, backlog int) errors.E {
 func (t *PtraceTracee) sysAccept(fd, flags int) (int, errors.E) {
 	connFd, err := t.doSyscall(true, unix.SYS_ACCEPT4, func(start uint64) ([]byte, [6]uint64, errors.E) {
 		return nil, [6]uint64{
-			uint64(fd),    // sockfd
-			0,             // addr
-			0,             // addrlen
-			uint64(flags), // flags
+			uint64(fd),    // sockfd.
+			0,             // addr.
+			0,             // addrlen.
+			uint64(flags), // flags.
 		}, nil
 	})
 	if err != nil {
@@ -483,8 +483,8 @@ func (t *PtraceTracee) sysAccept(fd, flags int) (int, errors.E) {
 func (t *PtraceTracee) sysDup2(oldFd, newFd int) errors.E {
 	_, err := t.doSyscall(true, unix.SYS_DUP2, func(start uint64) ([]byte, [6]uint64, errors.E) {
 		return nil, [6]uint64{
-			uint64(oldFd), // oldfd
-			uint64(newFd), // newfd
+			uint64(oldFd), // oldfd.
+			uint64(newFd), // newfd.
 		}, nil
 	})
 	if err != nil {
@@ -532,9 +532,9 @@ func (t *PtraceTracee) sysConnectUnix(fd int, path string) errors.E {
 		}
 		payload := buf.Bytes()
 		return payload, [6]uint64{
-			uint64(fd),           // sockfd
-			start,                // addr
-			uint64(len(payload)), // addrlen
+			uint64(fd),           // sockfd.
+			start,                // addr.
+			uint64(len(payload)), // addrlen.
 		}, nil
 	})
 	if err != nil {
@@ -582,9 +582,9 @@ func (t *PtraceTracee) sysBindUnix(fd int, path string) errors.E {
 		}
 		payload := buf.Bytes()
 		return payload, [6]uint64{
-			uint64(fd),           // sockfd
-			start,                // addr
-			uint64(len(payload)), // addrlen
+			uint64(fd),           // sockfd.
+			start,                // addr.
+			uint64(len(payload)), // addrlen.
 		}, nil
 	})
 	if err != nil {
@@ -603,9 +603,9 @@ func (t *PtraceTracee) sysSendmsg(fd int, p, oob []byte, flags int) (int, int, e
 		}
 		payload = p
 		return payload, [6]uint64{
-			uint64(fd),     // sockfd
-			start + offset, // msg
-			uint64(flags),  // flags
+			uint64(fd),     // sockfd.
+			start + offset, // msg.
+			uint64(flags),  // flags.
 		}, nil
 	})
 	if err != nil {
@@ -624,20 +624,20 @@ func (t *PtraceTracee) sysRecvmsg(fd int, p, oob []byte, flags int) (int, int, i
 		}
 		payload = p
 		return payload, [6]uint64{
-			uint64(fd),     // sockfd
-			start + offset, // msg
-			uint64(flags),  // flags
+			uint64(fd),     // sockfd.
+			start + offset, // msg.
+			uint64(flags),  // flags.
 		}, nil
 	})
 	if err != nil {
 		return int(res), 0, 0, errors.Errorf("sys recvmsg: %w", err)
 	}
 	buf := bytes.NewReader(payload)
-	e := binary.Read(buf, binary.LittleEndian, p) // unix.Iovec.Base
+	e := binary.Read(buf, binary.LittleEndian, p) // unix.Iovec.Base.
 	if e != nil {
 		return int(res), 0, 0, errors.Errorf("sys recvmsg: %w", e)
 	}
-	e = binary.Read(buf, binary.LittleEndian, oob) // unix.Msghdr.Control
+	e = binary.Read(buf, binary.LittleEndian, oob) // unix.Msghdr.Control.
 	if e != nil {
 		return int(res), 0, 0, errors.Errorf("sys recvmsg: %w", e)
 	}
@@ -851,7 +851,6 @@ func (t *PtraceTracee) waitTrap(cause int) errors.E {
 		} else if status.TrapCause() != -1 {
 			t.logWarnf("unexpected trap cause for PID %d: %d, expected %d", t.Pid, status.TrapCause(), cause)
 			return nil
-
 		} else if status.Stopped() {
 			// If the tracee stopped it might have stopped for some other signal. While a tracee is
 			// ptraced any signal it receives stops the tracee for us to decide what to do about the
