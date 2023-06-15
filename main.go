@@ -541,6 +541,7 @@ func finishService(runCmd *exec.Cmd, name string, jsonName []byte, p string) err
 
 			return nil
 		}
+
 		maybeSetExitCode(exitDinitFailure, err)
 		return err
 	}
