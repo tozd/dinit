@@ -1,4 +1,4 @@
-package main
+package ptrace
 
 import (
 	"bytes"
@@ -121,6 +121,8 @@ func newMsghrd(start uint64, p, oob []byte) (uint64, []byte, errors.E) {
 type PtraceTracee struct {
 	Pid           int
 	memoryAddress uint64
+	debugLog      bool
+	logWarnf      func(msg string, args ...any)
 }
 
 // Attach attaches to the tracee and allocates private working memory in it.
@@ -129,8 +131,11 @@ func (t *PtraceTracee) Attach() errors.E {
 		return errors.Errorf("tracee already attached")
 	}
 
+	runtime.LockOSThread()
+
 	err := errors.WithStack(unix.PtraceSeize(t.Pid))
 	if err != nil {
+		runtime.UnlockOSThread()
 		return errors.Errorf("ptrace seize: %w", err)
 	}
 
@@ -138,18 +143,21 @@ func (t *PtraceTracee) Attach() errors.E {
 	if err != nil {
 		err = errors.Errorf("ptrace interrupt: %w", err)
 		err2 := errors.WithStack(unix.PtraceDetach(t.Pid))
+		runtime.UnlockOSThread()
 		return errors.Join(err, err2)
 	}
 
 	err = t.waitTrap(unix.PTRACE_EVENT_STOP)
 	if err != nil {
 		err2 := errors.WithStack(unix.PtraceDetach(t.Pid))
+		runtime.UnlockOSThread()
 		return errors.Join(err, err2)
 	}
 
 	address, err := t.allocateMemory()
 	if err != nil {
 		err2 := errors.WithStack(unix.PtraceDetach(t.Pid))
+		runtime.UnlockOSThread()
 		return errors.Join(err, err2)
 	}
 
@@ -167,6 +175,7 @@ func (t *PtraceTracee) Detach() errors.E {
 	err := t.freeMemory(t.memoryAddress)
 	if err != nil {
 		err2 := errors.WithStack(unix.PtraceDetach(t.Pid))
+		runtime.UnlockOSThread()
 		if err2 == nil {
 			t.memoryAddress = 0
 		}
@@ -174,6 +183,7 @@ func (t *PtraceTracee) Detach() errors.E {
 	}
 
 	err = errors.WithStack(unix.PtraceDetach(t.Pid))
+	runtime.UnlockOSThread()
 	if err != nil {
 		return errors.Errorf("ptrace detach: %w", err)
 	}
@@ -839,7 +849,7 @@ func (t *PtraceTracee) waitTrap(cause int) errors.E {
 		if status.TrapCause() == cause {
 			return nil
 		} else if status.TrapCause() != -1 {
-			logWarnf("unexpected trap cause for PID %d: %d, expected %d", t.Pid, status.TrapCause(), cause)
+			t.logWarnf("unexpected trap cause for PID %d: %d, expected %d", t.Pid, status.TrapCause(), cause)
 			return nil
 
 		} else if status.Stopped() {
@@ -922,9 +932,11 @@ func redirectStdoutStderr(pid int, stdoutWriter, stderrWriter *os.File) (stdout,
 // replaceFdForProcessFds copies traceeFds to this process to see which ones if any match
 // from. If match if found, we replace it with to by copying to to the tracee and set it
 // instead of the corresponding traceeFd.
-func replaceFdForProcessFds(pid int, traceeFds []int, from, to *os.File) (err errors.E) {
+func replaceFdForProcessFds(debugLog bool, logWarnf func(msg string, args ...any), pid int, traceeFds []int, from, to *os.File) (err errors.E) {
 	t := PtraceTracee{
-		Pid: pid,
+		Pid:      pid,
+		debugLog: debugLog,
+		logWarnf: logWarnf,
 	}
 
 	err = t.Attach()
@@ -978,7 +990,7 @@ func replaceFdForProcessFds(pid int, traceeFds []int, from, to *os.File) (err er
 // copy those file descriptors to this process. This is inherently racy so we are lenient if after enumeration
 // we do not find some file descriptors from the list.
 // TODO: This replaces only file descriptors for the whole process and not threads which called unshare.
-func replaceFdForProcess(pid int, from, to *os.File) errors.E {
+func replaceFdForProcess(debugLog bool, logWarnf func(msg string, args ...any), pid int, from, to *os.File) errors.E {
 	fdPath := fmt.Sprintf("/proc/%d/fd", pid)
 	entries, e := os.ReadDir(fdPath)
 	if e != nil {
@@ -997,7 +1009,7 @@ func replaceFdForProcess(pid int, from, to *os.File) errors.E {
 		fds = append(fds, fd)
 	}
 
-	return replaceFdForProcessFds(pid, fds, from, to)
+	return replaceFdForProcessFds(debugLog, logWarnf, pid, fds, from, to)
 }
 
 func equalFds(fd1, fd2 int) (bool, errors.E) {
@@ -1021,7 +1033,7 @@ func equalFds(fd1, fd2 int) (bool, errors.E) {
 // descriptors to this process. This is inherently racy as new children processes might be made after we
 // have enumerated them. Because we replace file descriptors in the parent process before we go to its
 // children we hope that any new children which are made while this function runs use replaced file descriptors.
-func replaceFdForProcessAndChildren(pid int, name string, from, to *os.File) errors.E {
+func replaceFdForProcessAndChildren(debugLog bool, logWarnf func(msg string, args ...any), pid int, name string, from, to *os.File) errors.E {
 	eq, err := equalFds(int(from.Fd()), int(to.Fd()))
 	if err != nil {
 		return errors.Errorf("unable to compare file descriptors: %w", err)
@@ -1031,7 +1043,7 @@ func replaceFdForProcessAndChildren(pid int, name string, from, to *os.File) err
 		return nil
 	}
 
-	err = replaceFdForProcess(pid, from, to)
+	err = replaceFdForProcess(debugLog, logWarnf, pid, from, to)
 	if err != nil {
 		if debugLog {
 			logWarnf("error replacing %s fd for process with PID %d: %+v", name, pid, err)
@@ -1064,7 +1076,7 @@ func replaceFdForProcessAndChildren(pid int, name string, from, to *os.File) err
 			if e != nil {
 				return errors.Errorf("failed to parse PID %s: %w", childPid, e)
 			}
-			err := replaceFdForProcessAndChildren(p, name, from, to)
+			err := replaceFdForProcessAndChildren(debugLog, logWarnf, p, name, from, to)
 			if err != nil {
 				return err
 			}
@@ -1077,10 +1089,7 @@ func replaceFdForProcessAndChildren(pid int, name string, from, to *os.File) err
 // The main function to setup redirect of stdout and stderr for a direct child.
 // Moreover, for the direct child and all its descendants it also replaces all
 // file descriptors matching those initial stdout and stderr with redirects as well.
-func ptraceRedirectStdoutStderr(pid int) (stdout, stderr *os.File, err errors.E) {
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
+func RedirectStdoutStderr(debugLog bool, logWarnf func(msg string, args ...any), pid int) (stdout, stderr *os.File, err errors.E) {
 	defer func() {
 		if err != nil {
 			if stdout != nil {
@@ -1121,14 +1130,14 @@ func ptraceRedirectStdoutStderr(pid int) (stdout, stderr *os.File, err errors.E)
 	}
 
 	if originalStdout != nil {
-		err = replaceFdForProcessAndChildren(pid, "stdout", originalStdout, stdoutWriter)
+		err = replaceFdForProcessAndChildren(debugLog, logWarnf, pid, "stdout", originalStdout, stdoutWriter)
 		if err != nil {
 			return
 		}
 	}
 
 	if originalStderr != nil {
-		err = replaceFdForProcessAndChildren(pid, "stderr", originalStderr, stderrWriter)
+		err = replaceFdForProcessAndChildren(debugLog, logWarnf, pid, "stderr", originalStderr, stderrWriter)
 		if err != nil {
 			return
 		}

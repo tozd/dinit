@@ -15,7 +15,7 @@
 // us pids of zombie processes as well and we can reap them explicitly by the pid.
 // See: https://github.com/golang/go/issues/60481
 
-package main
+package dinit
 
 import (
 	"bufio"
@@ -41,6 +41,8 @@ import (
 	"gitlab.com/tozd/go/errors"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
+
+	"gitlab.com/tozd/dinit/internal/ptrace"
 )
 
 const etcService = "/etc/service"
@@ -161,7 +163,7 @@ func getExitCode() int {
 
 var stdOutLog = log.New(os.Stdout, "", logFlags)
 
-func main() {
+func Main() {
 	log.SetFlags(logFlags)
 
 	switch level := os.Getenv("DINIT_LOG_LEVEL"); level {
@@ -985,7 +987,7 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) errors.E 
 	setRunningChildPid(pid, true)
 	defer removeRunningChildPid(pid)
 
-	stdout, stderr, err := ptraceRedirectStdoutStderr(pid)
+	stdout, stderr, err := ptrace.RedirectStdoutStderr(debugLog, logWarnf, pid)
 	if err != nil {
 		if debugLog {
 			logWarnf("%s/%s: error redirecting stdout and stderr: %+v", name, stage, err)
