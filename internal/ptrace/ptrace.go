@@ -423,6 +423,17 @@ func (t *Tracee) freeMemory(address uint64) errors.E {
 	return err
 }
 
+// getpid syscall in the tracee.
+func (t *Tracee) sysGetpid() (int, errors.E) {
+	pid, err := t.doSyscall(true, unix.SYS_GETPID, func(start uint64) ([]byte, [6]uint64, errors.E) {
+		return nil, [6]uint64{}, nil
+	})
+	if err != nil {
+		err = errors.Errorf("sys getpid: %w", err)
+	}
+	return int(pid), err
+}
+
 // socket syscall in the tracee.
 func (t *Tracee) sysSocket(domain, typ, proto int) (int, errors.E) {
 	fd, err := t.doSyscall(true, unix.SYS_SOCKET, func(start uint64) ([]byte, [6]uint64, errors.E) {
@@ -900,12 +911,12 @@ func RedirectStdoutStderr(debugLog bool, logWarnf func(msg string, args ...any),
 	return
 }
 
-// replaceFdForProcessFds copies traceeFds to this process to see which ones if any match
+// ReplaceFdForProcessFds copies traceeFds to this process to see which ones if any match
 // "from". If match is found, we replace it with "to" by copying "to" to the tracee and set it
 // instead of the corresponding traceeFd.
 //
 //nolint:nakedret
-func replaceFdForProcessFds(debugLog bool, logWarnf func(msg string, args ...any), pid int, traceeFds []int, from, to *os.File) (err errors.E) {
+func ReplaceFdForProcessFds(debugLog bool, logWarnf func(msg string, args ...any), pid int, traceeFds []int, from, to *os.File) (err errors.E) {
 	t := Tracee{
 		Pid:      pid,
 		DebugLog: debugLog,
@@ -982,7 +993,7 @@ func replaceFdForProcess(debugLog bool, logWarnf func(msg string, args ...any), 
 		fds = append(fds, fd)
 	}
 
-	return replaceFdForProcessFds(debugLog, logWarnf, pid, fds, from, to)
+	return ReplaceFdForProcessFds(debugLog, logWarnf, pid, fds, from, to)
 }
 
 func equalFds(fd1, fd2 int) (bool, errors.E) {
