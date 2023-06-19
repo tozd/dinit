@@ -42,7 +42,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
 
-	"gitlab.com/tozd/dinit/internal/ptrace"
+	"gitlab.com/tozd/dinit/internal/pcontrol"
 )
 
 const etcService = "/etc/service"
@@ -996,7 +996,7 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) errors.E 
 	setRunningChildPid(pid, true)
 	defer removeRunningChildPid(pid)
 
-	stdout, stderr, err := ptrace.RedirectAllStdoutStderr(debugLog, logWarnf, pid)
+	stdout, stderr, err := pcontrol.RedirectAllStdoutStderr(debugLog, logWarnf, pid)
 	if err != nil {
 		if debugLog {
 			logWarnf("%s/%s: error redirecting stdout and stderr: %+v", name, stage, err)

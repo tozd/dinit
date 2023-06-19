@@ -13,10 +13,14 @@ github.com/stretchr/testify v1.8.4 h1:CcVxjf3Q8PM0mHUKJCdn+eZZtm5yQwehR5yeSVQQcU
 github.com/stretchr/testify v1.8.4/go.mod h1:sz/lmYIOXD/1dqDmKjjqLyZ2RngseejIcXlSw2iwfAo=
 gitlab.com/tozd/go/errors v0.5.0 h1:NnCzlYWDC6xaKeM2vkZL6WjPUXiqalVp43CSaYf/5u8=
 gitlab.com/tozd/go/errors v0.5.0/go.mod h1:ITSj/0jMirXC20gMbqLNjq2vjXo7rfVi9/f070oN5wY=
+gitlab.com/tozd/go/pcontrol v0.0.0-20230619223829-fb29b1c081eb h1:04jIo/vxlctECxwTzGG+2Nonbta1qSymSnejYjVQCC0=
+gitlab.com/tozd/go/pcontrol v0.0.0-20230619223829-fb29b1c081eb/go.mod h1:6XTajViWa9UAdI9cSUFRK8vs/Rvj4jSwngznUYUjExs=
 golang.org/x/sync v0.2.0 h1:PUR+T4wwASmuSTYdKjYHI5TD22Wy5ogLU5qZCOLxBrI=
 golang.org/x/sync v0.2.0/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
 golang.org/x/sys v0.8.0 h1:EBmGv8NaZBZTWvrbjNoL6HVt+IVy3QDQpJs7VRIw3tU=
 golang.org/x/sys v0.8.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+golang.org/x/sys v0.9.0 h1:KS/R3tvhPqvJvwcKfnBHJwwthS11LRhmM5D59eEXa0s=
+golang.org/x/sys v0.9.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
 gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c h1:dUUwHk2QECo/6vqA44rthZ8ie2QXMNeKRTHCNY2nXvo=
 gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=
