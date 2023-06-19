@@ -70,6 +70,14 @@ func TestReplaceFdForProcessFds(t *testing.T) {
 			_ = cmd.Process.Kill()
 			_, _ = cmd.Process.Wait()
 		}
+
+		_ = stdinWriter.Close()
+		_ = stdoutWriter1.Close()
+		_ = stderrWriter1.Close()
+		_ = stdoutWriter2.Close()
+		_ = stderrWriter2.Close()
+		_ = stdout2.Close()
+		_ = stderr2.Close()
 	})
 
 	err := pcontrol.ReplaceFdForProcessFds(false, func(msg string, args ...any) {}, cmd.Process.Pid, []int{1}, stdoutWriter1, stdoutWriter2)
@@ -104,6 +112,14 @@ func TestRedirectStdoutStderr(t *testing.T) {
 			_ = cmd.Process.Kill()
 			_, _ = cmd.Process.Wait()
 		}
+
+		_ = stdinWriter.Close()
+		_ = stdoutWriter1.Close()
+		_ = stderrWriter1.Close()
+		_ = stdoutWriter2.Close()
+		_ = stderrWriter2.Close()
+		_ = stdout2.Close()
+		_ = stderr2.Close()
 	})
 
 	stdoutWriter3, stderrWriter3, err := pcontrol.RedirectStdoutStderr(false, func(msg string, args ...any) {}, cmd.Process.Pid, stdoutWriter2, stderrWriter2)
