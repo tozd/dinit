@@ -77,12 +77,12 @@ func RedirectStdoutStderr(debugLog bool, logWarnf func(msg string, args ...any),
 	return
 }
 
-// ReplaceFdForProcessFds copies traceeFds to this process to see which ones if any match
+// replaceFdForProcessFds copies traceeFds to this process to see which ones if any match
 // "from". If match is found, we replace it with "to" by copying "to" to the tracee and set it
 // instead of the corresponding traceeFd.
 //
 //nolint:nakedret
-func ReplaceFdForProcessFds(debugLog bool, logWarnf func(msg string, args ...any), pid int, traceeFds []int, from, to *os.File) (err errors.E) {
+func replaceFdForProcessFds(debugLog bool, logWarnf func(msg string, args ...any), pid int, traceeFds []int, from, to *os.File) (err errors.E) {
 	p := pcontrol.Process{
 		Pid:      pid,
 		LogWarnf: logWarnf,
@@ -158,7 +158,7 @@ func replaceFdForProcess(debugLog bool, logWarnf func(msg string, args ...any), 
 		fds = append(fds, fd)
 	}
 
-	return ReplaceFdForProcessFds(debugLog, logWarnf, pid, fds, from, to)
+	return replaceFdForProcessFds(debugLog, logWarnf, pid, fds, from, to)
 }
 
 // A file descriptor we redirected in a direct children process might have been further inherited or
@@ -168,7 +168,7 @@ func replaceFdForProcess(debugLog bool, logWarnf func(msg string, args ...any), 
 // descriptors to this process. This is inherently racy as new children processes might be made after we
 // have enumerated them. Because we replace file descriptors in the parent process before we go to its
 // children we hope that any new children which are made while this function runs use replaced file descriptors.
-func replaceFdForProcessAndChildren(debugLog bool, logWarnf func(msg string, args ...any), pid int, name string, from, to *os.File) errors.E {
+func ReplaceFdForProcessAndChildren(debugLog bool, logWarnf func(msg string, args ...any), pid int, name string, from, to *os.File) errors.E {
 	eq, err := pcontrol.EqualFds(int(from.Fd()), int(to.Fd()))
 	if err != nil {
 		return errors.Errorf("unable to compare file descriptors: %w", err)
@@ -211,7 +211,7 @@ func replaceFdForProcessAndChildren(debugLog bool, logWarnf func(msg string, arg
 			if e != nil {
 				return errors.Errorf("failed to parse PID %s: %w", childPid, e)
 			}
-			err := replaceFdForProcessAndChildren(debugLog, logWarnf, p, name, from, to)
+			err := ReplaceFdForProcessAndChildren(debugLog, logWarnf, p, name, from, to)
 			if err != nil {
 				return err
 			}
@@ -267,14 +267,14 @@ func RedirectAllStdoutStderr(debugLog bool, logWarnf func(msg string, args ...an
 	}
 
 	if originalStdout != nil {
-		err = replaceFdForProcessAndChildren(debugLog, logWarnf, pid, "stdout", originalStdout, stdoutWriter)
+		err = ReplaceFdForProcessAndChildren(debugLog, logWarnf, pid, "stdout", originalStdout, stdoutWriter)
 		if err != nil {
 			return
 		}
 	}
 
 	if originalStderr != nil {
-		err = replaceFdForProcessAndChildren(debugLog, logWarnf, pid, "stderr", originalStderr, stderrWriter)
+		err = ReplaceFdForProcessAndChildren(debugLog, logWarnf, pid, "stderr", originalStderr, stderrWriter)
 		if err != nil {
 			return
 		}

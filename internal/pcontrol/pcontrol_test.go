@@ -61,7 +61,7 @@ func startProcess(t *testing.T) (*exec.Cmd, *os.File, *os.File, *os.File, *os.Fi
 	return cmd, stdinWriter, stdoutWriter1, stderrWriter1, stdoutWriter2, stderrWriter2, stdout2, stderr2
 }
 
-func TestReplaceFdForProcessFds(t *testing.T) {
+func TestReplaceFdForProcessAndChildren(t *testing.T) {
 	cmd, stdinWriter, stdoutWriter1, stderrWriter1, stdoutWriter2, stderrWriter2, stdout2, stderr2 := startProcess(t)
 
 	waited := false
@@ -80,7 +80,7 @@ func TestReplaceFdForProcessFds(t *testing.T) {
 		_ = stderr2.Close()
 	})
 
-	err := pcontrol.ReplaceFdForProcessFds(false, func(msg string, args ...any) {}, cmd.Process.Pid, []int{1}, stdoutWriter1, stdoutWriter2)
+	err := pcontrol.ReplaceFdForProcessAndChildren(false, func(msg string, args ...any) {}, cmd.Process.Pid, "stdout", stdoutWriter1, stdoutWriter2)
 	require.NoError(t, err)
 
 	_, _ = stdinWriter.WriteString("\n")
@@ -153,6 +153,52 @@ func TestRedirectStdoutStderr(t *testing.T) {
 	require.NoError(t, e)
 
 	serr, e := io.ReadAll(stderr2)
+	require.NoError(t, e)
+
+	assert.Equal(t, []byte("end\n"), sout)
+	assert.Equal(t, []byte{}, serr)
+}
+
+func TestRedirectAllStdoutStderr(t *testing.T) {
+	cmd, stdinWriter, stdoutWriter1, stderrWriter1, stdoutWriter2, stderrWriter2, stdout2, stderr2 := startProcess(t)
+
+	waited := false
+	t.Cleanup(func() {
+		if !waited {
+			_ = cmd.Process.Kill()
+			_, _ = cmd.Process.Wait()
+		}
+
+		_ = stdinWriter.Close()
+		_ = stdoutWriter1.Close()
+		_ = stderrWriter1.Close()
+		_ = stdoutWriter2.Close()
+		_ = stderrWriter2.Close()
+		_ = stdout2.Close()
+		_ = stderr2.Close()
+	})
+
+	stdout3, stderr3, err := pcontrol.RedirectAllStdoutStderr(false, func(msg string, args ...any) {}, cmd.Process.Pid)
+	t.Cleanup(func() {
+		_ = stdout3.Close()
+		_ = stderr3.Close()
+	})
+	require.NoError(t, err)
+
+	_, _ = stdinWriter.WriteString("\n")
+
+	_, _ = cmd.Process.Wait()
+	waited = true
+
+	_ = stdoutWriter1.Close()
+	_ = stderrWriter1.Close()
+	_ = stdoutWriter2.Close()
+	_ = stderrWriter2.Close()
+
+	sout, e := io.ReadAll(stdout3)
+	require.NoError(t, e)
+
+	serr, e := io.ReadAll(stderr3)
 	require.NoError(t, e)
 
 	assert.Equal(t, []byte("end\n"), sout)
