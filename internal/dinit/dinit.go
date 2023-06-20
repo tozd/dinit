@@ -758,9 +758,9 @@ var (
 	processedPidsMu sync.Mutex
 )
 
-// processPid could be called multiple times on the same PID (of the same process) so
+// ProcessPid could be called multiple times on the same PID (of the same process) so
 // it has to make sure it behaves well if that happens.
-func processPid(ctx context.Context, g *errgroup.Group, policy policyFunc, pid int) {
+func ProcessPid(ctx context.Context, g *errgroup.Group, policy policyFunc, pid int) {
 	processedPidsMu.Lock()
 	defer processedPidsMu.Unlock()
 	if processedPids[pid] {
@@ -844,7 +844,7 @@ func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) erro
 			}
 			if !hasRunningChildPid(p) {
 				// If this is not our own child we call configured policy.
-				processPid(ctx, g, policy, p)
+				ProcessPid(ctx, g, policy, p)
 			}
 		}
 
@@ -878,7 +878,7 @@ func getProcessCommandLine(pid int) (string, errors.E) {
 // This is an utility function, so we do not call maybeSetExitCode(exitDinitFailure) on
 // errors but leave it to the caller to decide if and when to do so.
 // TODO: Should we use waitid with WEXITED|WNOHANG|WNOWAIT options?
-func isZombie(pid int) (bool, errors.E) {
+func IsZombie(pid int) (bool, errors.E) {
 	statPath := fmt.Sprintf("/proc/%d/stat", pid)
 	statData, e := os.ReadFile(statPath)
 	if e != nil {
@@ -914,7 +914,7 @@ func getProcessProgramName(pid int) (string, errors.E) {
 
 // This is an utility function, so we do not call maybeSetExitCode(exitDinitFailure) on
 // errors but leave it to the caller to decide if and when to do so.
-func getProcessInfo(pid int) (string, string, string, errors.E) {
+func GetProcessInfo(pid int) (string, string, string, errors.E) {
 	cmdline, err := getProcessCommandLine(pid)
 	if err != nil {
 		return "", "", "", err
@@ -947,7 +947,7 @@ func getProcessInfo(pid int) (string, string, string, errors.E) {
 // We do not care about context cancellation. Even if the context is canceled we still
 // want to continue adopting reparented processes (and terminating them as soon as possible).
 func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) errors.E {
-	cmdline, name, stage, err := getProcessInfo(pid)
+	cmdline, name, stage, err := GetProcessInfo(pid)
 	if err != nil {
 		if processNotExist(err) {
 			// Not a problem, the process does not exist anymore, we do not have to do anything about it anymore.
@@ -973,7 +973,7 @@ func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) errors.E 
 
 	// Checking if the process is a zombie is primarily cosmetic to reduce
 	// potentially misleading logging messages.
-	zombie, err := isZombie(pid)
+	zombie, err := IsZombie(pid)
 	if err != nil {
 		if processNotExist(err) {
 			// The process does not exist anymore, nothing for us to do anymore.
@@ -1074,7 +1074,7 @@ func doWait(p *os.Process, name, stage string) errors.E {
 // We do not care about context cancellation. Even if the context is canceled we still
 // want to continue terminating reparented processes.
 func ReparentingTerminate(_ context.Context, g *errgroup.Group, pid int) errors.E {
-	cmdline, name, stage, err := getProcessInfo(pid)
+	cmdline, name, stage, err := GetProcessInfo(pid)
 	if err != nil {
 		if processNotExist(err) {
 			// Not a problem, the process does not exist anymore, we do not have to do anything about it anymore.
@@ -1090,7 +1090,7 @@ func ReparentingTerminate(_ context.Context, g *errgroup.Group, pid int) errors.
 
 	// Checking if the process is a zombie is primarily cosmetic to reduce
 	// potentially misleading logging messages.
-	zombie, err := isZombie(pid)
+	zombie, err := IsZombie(pid)
 	if err != nil {
 		if processNotExist(err) {
 			// The process does not exist anymore, nothing for us to do anymore.
