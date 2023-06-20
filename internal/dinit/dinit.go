@@ -197,7 +197,7 @@ func Main() {
 	switch policy := os.Getenv("DINIT_REPARENTING_POLICY"); policy {
 	case "adopt":
 		g.Go(func() error {
-			return reparenting(ctx, g, reparentingAdopt)
+			return reparenting(ctx, g, ReparentingAdopt)
 		})
 	case "terminate", "": // Default reparenting policy.
 		g.Go(func() error {
@@ -946,7 +946,7 @@ func GetProcessInfo(pid int) (string, string, string, errors.E) {
 
 // We do not care about context cancellation. Even if the context is canceled we still
 // want to continue adopting reparented processes (and terminating them as soon as possible).
-func reparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) errors.E {
+func ReparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) errors.E {
 	cmdline, name, stage, err := GetProcessInfo(pid)
 	if err != nil {
 		if processNotExist(err) {

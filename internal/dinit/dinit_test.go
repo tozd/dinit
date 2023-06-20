@@ -50,6 +50,44 @@ func TestReparentingTerminate(t *testing.T) {
 	assert.Equal(t, "", lines[3])
 }
 
+func TestReparentingAdopt(t *testing.T) {
+	var buf bytes.Buffer
+	writer := log.Writer()
+	log.SetOutput(&buf)
+	t.Cleanup(func() {
+		log.SetOutput(writer)
+	})
+
+	dinit.ConfigureLog("debug")
+
+	cmd := exec.Command("/bin/sleep", "infinity")
+	e := cmd.Start()
+	require.NoError(t, e)
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	g, ctx := errgroup.WithContext(ctx)
+
+	dinit.ProcessPid(ctx, g, dinit.ReparentingAdopt, cmd.Process.Pid)
+
+	cancel()
+
+	e = g.Wait()
+	require.ErrorAs(t, e, &context.Canceled)
+
+	lines := strings.Split(buf.String(), "\n")
+	require.Len(t, lines, 5)
+	assert.Regexp(t, `.+Z dinit: warning: sleep/\d+: adopting reparented child process with PID \d+(: /bin/sleep infinity)?`, lines[0])
+	assert.Regexp(t, `.+Z dinit: info: sleep/\d+: finishing`, lines[1])
+	assert.Regexp(t, `.+Z dinit: info: sleep/\d+: sending SIGTERM to PID \d+`, lines[2])
+	assert.Regexp(t, `.+Z dinit: info: sleep/\d+: PID \d+ finished with signal 15`, lines[3])
+	assert.Equal(t, "", lines[4])
+}
+
 func TestGetProcessInfo(t *testing.T) {
 	for _, tt := range []struct {
 		Cmd     []string
