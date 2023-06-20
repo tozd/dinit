@@ -17,7 +17,7 @@ import (
 // this process and returns them. Make sure to close them once you do not need them anymore.
 //
 //nolint:nakedret
-func RedirectStdoutStderr(debugLog bool, logWarnf func(msg string, args ...any), pid int, stdoutWriter, stderrWriter *os.File) (stdout, stderr *os.File, err errors.E) {
+func RedirectStdoutStderr(_ bool, logWarnf func(msg string, args ...any), pid int, stdoutWriter, stderrWriter *os.File) (stdout, stderr *os.File, err errors.E) {
 	p := pcontrol.Process{
 		Pid:      pid,
 		LogWarnf: logWarnf,
@@ -82,7 +82,7 @@ func RedirectStdoutStderr(debugLog bool, logWarnf func(msg string, args ...any),
 // instead of the corresponding traceeFd.
 //
 //nolint:nakedret
-func replaceFdForProcessFds(debugLog bool, logWarnf func(msg string, args ...any), pid int, traceeFds []int, from, to *os.File) (err errors.E) {
+func replaceFdForProcessFds(_ bool, logWarnf func(msg string, args ...any), pid int, traceeFds []int, from, to *os.File) (err errors.E) {
 	p := pcontrol.Process{
 		Pid:      pid,
 		LogWarnf: logWarnf,
