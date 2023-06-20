@@ -117,7 +117,7 @@ func ReplaceFdForProcessFds(debugLog bool, logWarnf func(msg string, args ...any
 		if hostFd == -1 {
 			continue
 		}
-		equal, err := equalFds(hostFd, int(from.Fd()))
+		equal, err := pcontrol.EqualFds(hostFd, int(from.Fd()))
 		if err != nil {
 			return err
 		}
@@ -161,20 +161,6 @@ func replaceFdForProcess(debugLog bool, logWarnf func(msg string, args ...any), 
 	return ReplaceFdForProcessFds(debugLog, logWarnf, pid, fds, from, to)
 }
 
-func equalFds(fd1, fd2 int) (bool, errors.E) {
-	var stat1 unix.Stat_t
-	err := errors.WithStack(unix.Fstat(fd1, &stat1))
-	if err != nil {
-		return false, err
-	}
-	var stat2 unix.Stat_t
-	err = errors.WithStack(unix.Fstat(fd2, &stat2))
-	if err != nil {
-		return false, err
-	}
-	return stat1.Dev == stat2.Dev && stat1.Ino == stat2.Ino && stat1.Rdev == stat2.Rdev, nil
-}
-
 // A file descriptor we redirected in a direct children process might have been further inherited or
 // duplicated. Because of that we copied the original file descriptor to this process (into from) and
 // traverse the direct children and its descendants and search and replace for any copy of the file
@@ -183,7 +169,7 @@ func equalFds(fd1, fd2 int) (bool, errors.E) {
 // have enumerated them. Because we replace file descriptors in the parent process before we go to its
 // children we hope that any new children which are made while this function runs use replaced file descriptors.
 func replaceFdForProcessAndChildren(debugLog bool, logWarnf func(msg string, args ...any), pid int, name string, from, to *os.File) errors.E {
-	eq, err := equalFds(int(from.Fd()), int(to.Fd()))
+	eq, err := pcontrol.EqualFds(int(from.Fd()), int(to.Fd()))
 	if err != nil {
 		return errors.Errorf("unable to compare file descriptors: %w", err)
 	}
