@@ -168,30 +168,7 @@ func getExitCode() int {
 var stdOutLog = log.New(os.Stdout, "", logFlags)
 
 func Main() {
-	log.SetFlags(logFlags)
-
-	switch level := os.Getenv("DINIT_LOG_LEVEL"); level {
-	case "none":
-		logError = func(msg any) {}
-		logErrorf = func(msg string, args ...any) {}
-		fallthrough
-	case "error":
-		logWarn = func(msg any) {}
-		logWarnf = func(msg string, args ...any) {}
-		fallthrough
-	case "warn", "": // Default log level.
-		logInfo = func(msg any) {}
-		logInfof = func(msg string, args ...any) {}
-		fallthrough
-	case "info":
-		logDebug = func(msg any) {}
-		logDebugf = func(msg string, args ...any) {}
-	case "debug":
-		debugLog = true
-	default:
-		logErrorf("invalid log level %s", level)
-		os.Exit(exitDinitFailure)
-	}
+	ConfigureLog(os.Getenv("DINIT_LOG_LEVEL"))
 
 	killTimeout := os.Getenv("DINIT_KILL_TIMEOUT")
 	if killTimeout != "" {
@@ -224,7 +201,7 @@ func Main() {
 		})
 	case "terminate", "": // Default reparenting policy.
 		g.Go(func() error {
-			return reparenting(ctx, g, reparentingTerminate)
+			return reparenting(ctx, g, ReparentingTerminate)
 		})
 	case "ignore":
 	default:
@@ -253,6 +230,33 @@ func Main() {
 	status := getExitCode()
 	logInfof("dinit exiting with status %d", status)
 	os.Exit(status)
+}
+
+func ConfigureLog(level string) {
+	log.SetFlags(logFlags)
+
+	switch level {
+	case "none":
+		logError = func(msg any) {}
+		logErrorf = func(msg string, args ...any) {}
+		fallthrough
+	case "error":
+		logWarn = func(msg any) {}
+		logWarnf = func(msg string, args ...any) {}
+		fallthrough
+	case "warn", "": // Default log level.
+		logInfo = func(msg any) {}
+		logInfof = func(msg string, args ...any) {}
+		fallthrough
+	case "info":
+		logDebug = func(msg any) {}
+		logDebugf = func(msg string, args ...any) {}
+	case "debug":
+		debugLog = true
+	default:
+		logErrorf("invalid log level %s", level)
+		os.Exit(exitDinitFailure)
+	}
 }
 
 func handleStopSignals() {
@@ -811,7 +815,7 @@ func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) erro
 		select {
 		case <-ctxDone:
 			// If the context is canceled, we just terminate any reparented process.
-			policy = reparentingTerminate
+			policy = ReparentingTerminate
 			// Disable this select case.
 			ctxDone = nil
 			// Increase the rate at which we are checking for new reparented processes.
@@ -868,7 +872,7 @@ func getProcessCommandLine(pid int) (string, errors.E) {
 		}
 		return "", errors.WithStack(e)
 	}
-	return string(bytes.ReplaceAll(cmdlineData, []byte("\x00"), []byte(" "))), nil
+	return string(bytes.TrimRight(bytes.ReplaceAll(cmdlineData, []byte("\x00"), []byte(" ")), " ")), nil
 }
 
 // This is an utility function, so we do not call maybeSetExitCode(exitDinitFailure) on
@@ -1069,7 +1073,7 @@ func doWait(p *os.Process, name, stage string) errors.E {
 
 // We do not care about context cancellation. Even if the context is canceled we still
 // want to continue terminating reparented processes.
-func reparentingTerminate(_ context.Context, g *errgroup.Group, pid int) errors.E {
+func ReparentingTerminate(_ context.Context, g *errgroup.Group, pid int) errors.E {
 	cmdline, name, stage, err := getProcessInfo(pid)
 	if err != nil {
 		if processNotExist(err) {
