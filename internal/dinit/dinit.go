@@ -400,7 +400,7 @@ func redirectStdoutWithPrefix(stage, name string, reader io.ReadCloser) {
 	redirectToLogWithPrefix(stdOutLog, stage, name, "stdout", reader)
 }
 
-func redirectJSON(stage, name string, jsonName []byte, reader io.ReadCloser) {
+func RedirectJSON(stage, name string, jsonName []byte, reader io.ReadCloser, writer io.Writer) {
 	defer reader.Close()
 
 	scanner := bufio.NewScanner(reader)
@@ -425,7 +425,7 @@ func redirectJSON(stage, name string, jsonName []byte, reader io.ReadCloser) {
 				buffer.Write(now.AppendFormat(timeBuffer, RFC3339Milli))
 				buffer.WriteString(`"}`)
 				buffer.WriteString("\n")
-				_, e := os.Stdout.Write(buffer.Bytes())
+				_, e := writer.Write(buffer.Bytes())
 				if e != nil {
 					logWarnf("%s/%s: error writing stdout: %s", name, stage, e)
 				}
@@ -455,7 +455,7 @@ func doRedirectAndWait(ctx context.Context, pid int, wait func() (*os.ProcessSta
 		if os.Getenv("DINIT_JSON_STDOUT") == "0" {
 			go redirectStdoutWithPrefix(stage, name, stdout)
 		} else {
-			go redirectJSON(stage, name, jsonName, stdout)
+			go RedirectJSON(stage, name, jsonName, stdout, os.Stdout)
 		}
 	}
 

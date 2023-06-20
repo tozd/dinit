@@ -3,6 +3,7 @@ package dinit_test
 import (
 	"bytes"
 	"context"
+	"io"
 	"log"
 	"os/exec"
 	"strconv"
@@ -145,4 +146,33 @@ func TestIsZombie(t *testing.T) {
 			assert.Equal(t, tt.Zombie, z)
 		})
 	}
+}
+
+func TestRedirectJSON(t *testing.T) {
+	var buf bytes.Buffer
+	writer := log.Writer()
+	log.SetOutput(&buf)
+	t.Cleanup(func() {
+		log.SetOutput(writer)
+	})
+
+	dinit.ConfigureLog("debug")
+
+	var in bytes.Buffer
+	var out bytes.Buffer
+	in.WriteString(`{"test":"foo"}`)
+	dinit.RedirectJSON("run", "test", []byte("test"), io.NopCloser(&in), &out)
+
+	assert.Regexp(t, `\{"test":"foo","service":test,"stage":"run","logged":".+"\}`, out.String())
+	assert.Equal(t, "", buf.String())
+
+	in.Reset()
+	out.Reset()
+	buf.Reset()
+
+	in.WriteString(`test`)
+	dinit.RedirectJSON("run", "test", []byte("test"), io.NopCloser(&in), &out)
+
+	assert.Equal(t, "", out.String())
+	assert.Regexp(t, `\d+Z dinit: warning: test/run: not JSON stdout: test\n`, buf.String())
 }
