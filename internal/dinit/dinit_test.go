@@ -95,6 +95,9 @@ func TestReparentingAdoptCancel(t *testing.T) {
 
 		dinit.ProcessPid(ctx, g, dinit.ReparentingAdopt, cmd.Process.Pid)
 
+		// Time to adopt.
+		time.Sleep(10 * time.Millisecond)
+
 		cancel()
 
 		e = g.Wait()
