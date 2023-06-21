@@ -392,7 +392,11 @@ func RedirectToLogWithPrefix(l *log.Logger, stage, name, input string, reader io
 	e := scanner.Err()
 	// Reader can get closed and we ignore that.
 	if e != nil && !errors.Is(e, os.ErrClosed) {
-		logWarnf("%s/%s: error reading %s: %s", name, stage, input, e)
+		if debugLog {
+			logWarnf("%s/%s: error reading %s: %+v", name, stage, input, e)
+		} else {
+			logWarnf("%s/%s: error reading %s: %s", name, stage, input, e)
+		}
 	}
 }
 
@@ -431,7 +435,11 @@ func RedirectJSON(stage, name string, jsonName []byte, reader io.ReadCloser, wri
 				buffer.WriteString("\n")
 				_, e := writer.Write(buffer.Bytes())
 				if e != nil {
-					logWarnf("%s/%s: error writing stdout: %s", name, stage, e)
+					if debugLog {
+						logWarnf("%s/%s: error writing stdout: %+v", name, stage, e)
+					} else {
+						logWarnf("%s/%s: error writing stdout: %s", name, stage, e)
+					}
 				}
 			} else {
 				logWarnf("%s/%s: not JSON stdout: %s\n", name, stage, line)
@@ -442,7 +450,11 @@ func RedirectJSON(stage, name string, jsonName []byte, reader io.ReadCloser, wri
 	e := scanner.Err()
 	// Reader can get closed and we ignore that.
 	if e != nil && !errors.Is(e, os.ErrClosed) {
-		logWarnf("%s/%s: error reading stdout: %s", name, stage, e)
+		if debugLog {
+			logWarnf("%s/%s: error reading stdout: %+v", name, stage, e)
+		} else {
+			logWarnf("%s/%s: error reading stdout: %s", name, stage, e)
+		}
 	}
 }
 
