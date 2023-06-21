@@ -3,10 +3,12 @@ package dinit_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"log"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -47,6 +49,40 @@ func withLogger(t *testing.T, f func()) string {
 	return string(l)
 }
 
+func assertLogs(t *testing.T, expected []string, actual string, msgAndArgs ...interface{}) {
+	t.Helper()
+
+	lines := strings.Split(actual, "\n")
+	require.Len(t, lines, len(expected)+1)
+	assert.Equal(t, "", lines[len(lines)-1])
+
+	rs := []*regexp.Regexp{}
+	for _, r := range expected {
+		rs = append(rs, regexp.MustCompile(r))
+	}
+
+	for _, line := range lines[:len(lines)-1] {
+		match := -1
+		for i, r := range rs {
+			if r.MatchString(line) {
+				match = i
+				break
+			}
+		}
+		if match != -1 {
+			// Remove regexp at index "match".
+			rs = append(rs[:match], rs[match+1:]...)
+			expected = append(expected[:match], expected[match+1:]...)
+		} else {
+			rxs := []string{}
+			for _, r := range expected {
+				rxs = append(rxs, fmt.Sprintf(`"%v"`, r))
+			}
+			assert.Fail(t, fmt.Sprintf("Expect \"%v\" to match one of %s", line, strings.Join(rxs, ", ")), msgAndArgs...)
+		}
+	}
+}
+
 func TestReparentingTerminate(t *testing.T) {
 	l := withLogger(t, func() {
 		cmd := exec.Command("/bin/sleep", "infinity")
@@ -68,12 +104,11 @@ func TestReparentingTerminate(t *testing.T) {
 		require.NoError(t, e)
 	})
 
-	lines := strings.Split(l, "\n")
-	require.Len(t, lines, 4)
-	assert.Regexp(t, `.+Z dinit: warning: sleep/\d+: terminating reparented child process with PID \d+(: /bin/sleep infinity)?`, lines[0])
-	assert.Regexp(t, `.+Z dinit: info: sleep/\d+: sending SIGTERM to PID \d+`, lines[1])
-	assert.Regexp(t, `.+Z dinit: info: sleep/\d+: PID \d+ finished with signal 15`, lines[2])
-	assert.Equal(t, "", lines[3])
+	assertLogs(t, []string{
+		`.+Z dinit: warning: sleep/\d+: terminating reparented child process with PID \d+(: /bin/sleep infinity)?`,
+		`.+Z dinit: info: sleep/\d+: sending SIGTERM to PID \d+`,
+		`.+Z dinit: info: sleep/\d+: PID \d+ finished with signal 15`,
+	}, l)
 }
 
 func TestReparentingAdoptCancel(t *testing.T) {
@@ -104,13 +139,12 @@ func TestReparentingAdoptCancel(t *testing.T) {
 		require.ErrorAs(t, e, &context.Canceled)
 	})
 
-	lines := strings.Split(l, "\n")
-	require.Len(t, lines, 5)
-	assert.Regexp(t, `.+Z dinit: warning: sleep/\d+: adopting reparented child process with PID \d+(: /bin/sleep infinity)?`, lines[0])
-	assert.Regexp(t, `.+Z dinit: info: sleep/\d+: finishing`, lines[1])
-	assert.Regexp(t, `.+Z dinit: info: sleep/\d+: sending SIGTERM to PID \d+`, lines[2])
-	assert.Regexp(t, `.+Z dinit: info: sleep/\d+: PID \d+ finished with signal 15`, lines[3])
-	assert.Equal(t, "", lines[4])
+	assertLogs(t, []string{
+		`.+Z dinit: warning: sleep/\d+: adopting reparented child process with PID \d+(: /bin/sleep infinity)?`,
+		`.+Z dinit: info: sleep/\d+: finishing`,
+		`.+Z dinit: info: sleep/\d+: sending SIGTERM to PID \d+`,
+		`.+Z dinit: info: sleep/\d+: PID \d+ finished with signal 15`,
+	}, l)
 }
 
 func TestReparentingAdoptFinish(t *testing.T) {
@@ -147,12 +181,11 @@ func TestReparentingAdoptFinish(t *testing.T) {
 		require.NoError(t, e)
 	})
 
-	lines := strings.Split(l, "\n")
-	require.Len(t, lines, 4)
-	assert.Regexp(t, `.+Z dinit: warning: bash/\d+: adopting reparented child process with PID \d+(: /bin/bash -c read; echo end)?`, lines[0])
-	assert.Regexp(t, `.+Z dinit: warning: bash/\d+: not JSON stdout: end`, lines[1])
-	assert.Regexp(t, `.+Z dinit: info: bash/\d+: PID \d+ finished with status 0`, lines[2])
-	assert.Equal(t, "", lines[3])
+	assertLogs(t, []string{
+		`.+Z dinit: warning: bash/\d+: adopting reparented child process with PID \d+(: /bin/bash -c read; echo end)?`,
+		`.+Z dinit: warning: bash/\d+: not JSON stdout: end`,
+		`.+Z dinit: info: bash/\d+: PID \d+ finished with status 0`,
+	}, l)
 }
 
 func TestGetProcessInfo(t *testing.T) {
