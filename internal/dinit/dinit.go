@@ -79,7 +79,7 @@ var procStatRegexp = regexp.MustCompile(`\((.*)\) (.)`)
 // We manually prefix logging.
 const logFlags = 0
 
-type policyFunc = func(ctx context.Context, g *errgroup.Group, pid int) errors.E
+type policyFunc = func(ctx context.Context, g *errgroup.Group, pid int, waiting chan<- struct{}) errors.E
 
 var debugLog = false
 
@@ -764,7 +764,7 @@ var (
 
 // ProcessPid could be called multiple times on the same PID (of the same process) so
 // it has to make sure it behaves well if that happens.
-func ProcessPid(ctx context.Context, g *errgroup.Group, policy policyFunc, pid int) {
+func ProcessPid(ctx context.Context, g *errgroup.Group, policy policyFunc, pid int, waiting chan<- struct{}) {
 	processedPidsMu.Lock()
 	defer processedPidsMu.Unlock()
 	if processedPids[pid] {
@@ -787,7 +787,7 @@ func ProcessPid(ctx context.Context, g *errgroup.Group, policy policyFunc, pid i
 		// when the associated process has finished and can be called without an issue with PID
 		// of a non-existing process (before PID gets recycled though).
 		defer removeProcessedPid(pid)
-		return policy(ctx, g, pid)
+		return policy(ctx, g, pid, waiting)
 	})
 }
 
@@ -848,7 +848,8 @@ func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) erro
 			}
 			if !hasRunningChildPid(p) {
 				// If this is not our own child we call configured policy.
-				ProcessPid(ctx, g, policy, p)
+				// We do not care when pid processing is waiting.
+				ProcessPid(ctx, g, policy, p, nil)
 			}
 		}
 
@@ -950,7 +951,7 @@ func GetProcessInfo(pid int) (string, string, string, errors.E) {
 
 // We do not care about context cancellation. Even if the context is canceled we still
 // want to continue adopting reparented processes (and terminating them as soon as possible).
-func ReparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) errors.E {
+func ReparentingAdopt(ctx context.Context, g *errgroup.Group, pid int, waiting chan<- struct{}) errors.E {
 	cmdline, name, stage, err := GetProcessInfo(pid)
 	if err != nil {
 		if processNotExist(err) {
@@ -1041,6 +1042,10 @@ func ReparentingAdopt(ctx context.Context, g *errgroup.Group, pid int) errors.E 
 		}
 	})
 
+	if waiting != nil {
+		close(waiting)
+	}
+
 	return doRedirectAndWait(ctx, pid, func() (*os.ProcessState, errors.E) {
 		state, e := p.Wait()
 		return state, errors.WithStack(e)
@@ -1077,7 +1082,7 @@ func doWait(p *os.Process, name, stage string) errors.E {
 
 // We do not care about context cancellation. Even if the context is canceled we still
 // want to continue terminating reparented processes.
-func ReparentingTerminate(_ context.Context, g *errgroup.Group, pid int) errors.E {
+func ReparentingTerminate(_ context.Context, g *errgroup.Group, pid int, waiting chan<- struct{}) errors.E {
 	cmdline, name, stage, err := GetProcessInfo(pid)
 	if err != nil {
 		if processNotExist(err) {
@@ -1159,6 +1164,10 @@ func ReparentingTerminate(_ context.Context, g *errgroup.Group, pid int) errors.
 
 		return nil
 	})
+
+	if waiting != nil {
+		close(waiting)
+	}
 
 	// By waiting we are also making sure that dinit does not exit before
 	// this reparented child process exits.

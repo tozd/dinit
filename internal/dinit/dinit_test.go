@@ -98,7 +98,10 @@ func TestReparentingTerminate(t *testing.T) {
 
 		g, ctx := errgroup.WithContext(context.Background())
 
-		dinit.ProcessPid(ctx, g, dinit.ReparentingTerminate, cmd.Process.Pid)
+		waiting := make(chan struct{})
+		dinit.ProcessPid(ctx, g, dinit.ReparentingTerminate, cmd.Process.Pid, waiting)
+
+		<-waiting
 
 		e = g.Wait()
 		require.NoError(t, e)
@@ -128,10 +131,10 @@ func TestReparentingAdoptCancel(t *testing.T) {
 
 		g, ctx := errgroup.WithContext(ctx)
 
-		dinit.ProcessPid(ctx, g, dinit.ReparentingAdopt, cmd.Process.Pid)
+		waiting := make(chan struct{})
+		dinit.ProcessPid(ctx, g, dinit.ReparentingAdopt, cmd.Process.Pid, waiting)
 
-		// Time to adopt.
-		time.Sleep(10 * time.Millisecond)
+		<-waiting
 
 		cancel()
 
@@ -170,10 +173,10 @@ func TestReparentingAdoptFinish(t *testing.T) {
 
 		g, ctx := errgroup.WithContext(context.Background())
 
-		dinit.ProcessPid(ctx, g, dinit.ReparentingAdopt, cmd.Process.Pid)
+		waiting := make(chan struct{})
+		dinit.ProcessPid(ctx, g, dinit.ReparentingAdopt, cmd.Process.Pid, waiting)
 
-		// Time to adopt.
-		time.Sleep(10 * time.Millisecond)
+		<-waiting
 
 		_, _ = stdinWriter.WriteString("\n")
 
