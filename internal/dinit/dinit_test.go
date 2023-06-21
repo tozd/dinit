@@ -140,6 +140,9 @@ func TestReparentingAdoptCancel(t *testing.T) {
 
 		e = g.Wait()
 		require.ErrorAs(t, e, &context.Canceled)
+
+		// So that the goroutine reading stdout and stderr from the process completes.
+		time.Sleep(10 * time.Millisecond)
 	})
 
 	assertLogs(t, []string{
@@ -182,6 +185,9 @@ func TestReparentingAdoptFinish(t *testing.T) {
 
 		e = g.Wait()
 		require.NoError(t, e)
+
+		// So that the goroutine reading stdout and stderr from the process completes.
+		time.Sleep(10 * time.Millisecond)
 	})
 
 	assertLogs(t, []string{
