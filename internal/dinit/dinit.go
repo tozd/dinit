@@ -375,7 +375,7 @@ func runServices(ctx context.Context, g *errgroup.Group, dir string) errors.E {
 	return nil
 }
 
-func redirectToLogWithPrefix(l *log.Logger, stage, name, input string, reader io.ReadCloser) {
+func RedirectToLogWithPrefix(l *log.Logger, stage, name, input string, reader io.ReadCloser) {
 	defer reader.Close()
 
 	scanner := bufio.NewScanner(reader)
@@ -397,11 +397,11 @@ func redirectToLogWithPrefix(l *log.Logger, stage, name, input string, reader io
 }
 
 func redirectStderrWithPrefix(stage, name string, reader io.ReadCloser) {
-	redirectToLogWithPrefix(log.Default(), stage, name, "stderr", reader)
+	RedirectToLogWithPrefix(log.Default(), stage, name, "stderr", reader)
 }
 
 func redirectStdoutWithPrefix(stage, name string, reader io.ReadCloser) {
-	redirectToLogWithPrefix(stdOutLog, stage, name, "stdout", reader)
+	RedirectToLogWithPrefix(stdOutLog, stage, name, "stdout", reader)
 }
 
 func RedirectJSON(stage, name string, jsonName []byte, reader io.ReadCloser, writer io.Writer) {

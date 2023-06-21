@@ -271,3 +271,16 @@ func TestRedirectJSON(t *testing.T) {
 	})
 	assert.Regexp(t, `\d+Z dinit: warning: test/run: not JSON stdout: test\n`, l)
 }
+
+func TestRedirectToLogWithPrefix(t *testing.T) {
+	l := withLogger(t, func() {
+		var in bytes.Buffer
+		var out bytes.Buffer
+		outLog := log.New(&out, "", 0)
+		in.WriteString(`test`)
+		dinit.RedirectToLogWithPrefix(outLog, "run", "test", "stdtest", io.NopCloser(&in))
+
+		assert.Regexp(t, `.+Z test/run: test`, out.String())
+	})
+	assert.Equal(t, "", l)
+}
