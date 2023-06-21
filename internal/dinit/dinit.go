@@ -123,7 +123,7 @@ func processNotExist(err error) bool {
 	return errors.Is(err, os.ErrNotExist) || errors.Is(err, unix.ESRCH) || errors.Is(err, syscall.ESRCH) || errors.Is(err, os.ErrProcessDone)
 }
 
-var mainContext, mainCancel = context.WithCancel(context.Background())
+var MainContext, MainCancel = context.WithCancel(context.Background())
 
 var mainPid = os.Getpid()
 
@@ -165,7 +165,7 @@ func getExitCode() int {
 	return 0
 }
 
-var stdOutLog = log.New(os.Stdout, "", logFlags)
+var StdOutLog = log.New(os.Stdout, "", logFlags)
 
 func Main() {
 	ConfigureLog(os.Getenv("DINIT_LOG_LEVEL"))
@@ -192,7 +192,7 @@ func Main() {
 
 	go handleStopSignals()
 
-	g, ctx := errgroup.WithContext(mainContext)
+	g, ctx := errgroup.WithContext(MainContext)
 
 	switch policy := os.Getenv("DINIT_REPARENTING_POLICY"); policy {
 	case "adopt":
@@ -215,7 +215,7 @@ func Main() {
 		if dir == "" {
 			dir = defaultDir
 		}
-		return runServices(ctx, g, dir)
+		return RunServices(ctx, g, dir)
 	})
 
 	// The assertion here is that once runServices and reparenting goroutines return
@@ -268,13 +268,13 @@ func handleStopSignals() {
 	c := make(chan os.Signal, 2) //nolint:gomnd
 	signal.Notify(c, unix.SIGTERM, unix.SIGINT)
 	for s := range c {
-		if mainContext.Err() != nil {
+		if MainContext.Err() != nil {
 			logInfof("got signal %d, already stopping children", s)
 		} else {
 			logInfof("got signal %d, stopping children", s)
 			// Even if children complain being terminated, we still exit with 0.
 			maybeSetExitCode(exitSuccess, nil)
-			mainCancel()
+			MainCancel()
 		}
 	}
 }
@@ -335,7 +335,7 @@ func cmdRun(cmd *exec.Cmd) errors.E {
 	return err
 }
 
-func runServices(ctx context.Context, g *errgroup.Group, dir string) errors.E {
+func RunServices(ctx context.Context, g *errgroup.Group, dir string) errors.E {
 	entries, e := os.ReadDir(dir)
 	if e != nil {
 		err := errors.WithStack(e)
@@ -349,7 +349,7 @@ func runServices(ctx context.Context, g *errgroup.Group, dir string) errors.E {
 		if strings.HasPrefix(name, ".") {
 			continue
 		}
-		p := path.Join(defaultDir, name)
+		p := path.Join(dir, name)
 		info, e := os.Stat(p)
 		if e != nil {
 			err := errors.WithStack(e)
@@ -370,7 +370,7 @@ func runServices(ctx context.Context, g *errgroup.Group, dir string) errors.E {
 	}
 	if !found {
 		logWarn("no services found, exiting")
-		mainCancel()
+		MainCancel()
 	}
 	return nil
 }
@@ -405,7 +405,7 @@ func redirectStderrWithPrefix(stage, name string, reader io.ReadCloser) {
 }
 
 func redirectStdoutWithPrefix(stage, name string, reader io.ReadCloser) {
-	RedirectToLogWithPrefix(stdOutLog, stage, name, "stdout", reader)
+	RedirectToLogWithPrefix(StdOutLog, stage, name, "stdout", reader)
 }
 
 func RedirectJSON(stage, name string, jsonName []byte, reader io.ReadCloser, writer io.Writer) {
@@ -514,6 +514,7 @@ func finishService(runCmd *exec.Cmd, name string, jsonName []byte, p string) err
 	r := path.Join(p, "finish")
 	cmd := exec.Command(r)
 	cmd.Dir = p
+	cmd.Env = append(os.Environ(), fmt.Sprintf("DINIT_PID=%d", runCmd.Process.Pid))
 
 	// We do not use StdoutPipe and StderrPipe so that we can control when pipe is closed.
 	// See: https://github.com/golang/go/issues/60309
@@ -640,7 +641,7 @@ func runService(ctx context.Context, g *errgroup.Group, name, p string) errors.E
 
 	// When the service finishes (which is when this function returns)
 	// we finish all other services as well and exit the program.
-	defer mainCancel()
+	defer MainCancel()
 
 	logInfof("%s/run: running with PID %d", name, cmd.Process.Pid)
 
@@ -673,8 +674,8 @@ func runService(ctx context.Context, g *errgroup.Group, name, p string) errors.E
 		// We already logged the error, so we pass nil here.
 		maybeSetExitCode(exitDinitFailure, nil)
 		// Let's stop everything. We do not return here but continue to wait for the service
-		// itself to finish, which should finish after we called mainCancel anyway.
-		mainCancel()
+		// itself to finish, which should finish after we called MainCancel anyway.
+		MainCancel()
 	}
 
 	err2 := doRedirectAndWait(ctx, cmd.Process.Pid, func() (*os.ProcessState, errors.E) {
@@ -756,7 +757,7 @@ func logService(ctx context.Context, g *errgroup.Group, name string, jsonName []
 
 		// When the log process finishes (which is when this goroutine returns)
 		// we finish all other services as well and exit the program.
-		defer mainCancel()
+		defer MainCancel()
 
 		// We do not pass stdout here but return it so that it is redirected with the run stage.
 		return doRedirectAndWait(ctx, cmd.Process.Pid, func() (*os.ProcessState, errors.E) {
@@ -984,7 +985,7 @@ func ReparentingAdopt(ctx context.Context, g *errgroup.Group, pid int, waiting c
 
 	// When adopting, then when the process stops (which is when this function returns)
 	// we stop all other services and exit the program.
-	defer mainCancel()
+	defer MainCancel()
 
 	p, _ := os.FindProcess(pid) // This call cannot fail.
 

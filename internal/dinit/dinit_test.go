@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -22,31 +23,31 @@ import (
 	"gitlab.com/tozd/dinit/internal/dinit"
 )
 
-func withLogger(t *testing.T, f func()) string {
+func withLogger(t *testing.T, l *log.Logger, f func()) string {
 	t.Helper()
 	reader, writer, err := os.Pipe()
 	defer reader.Close() //nolint:staticcheck
 	// We might double close writer here, but that is OK and we ignore any error.
 	defer writer.Close()
 	require.NoError(t, err)
-	orgWriter := log.Writer()
-	log.SetOutput(writer)
+	orgWriter := l.Writer()
+	l.SetOutput(writer)
 	defer func() {
-		log.SetOutput(orgWriter)
+		l.SetOutput(orgWriter)
 	}()
 
 	var wg sync.WaitGroup
-	var l []byte
+	var data []byte
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		l, _ = io.ReadAll(reader)
+		data, _ = io.ReadAll(reader)
 	}()
 	dinit.ConfigureLog("info")
 	f()
 	writer.Close()
 	wg.Wait()
-	return string(l)
+	return string(data)
 }
 
 func assertLogs(t *testing.T, expected []string, actual string, msgAndArgs ...interface{}) {
@@ -84,7 +85,9 @@ func assertLogs(t *testing.T, expected []string, actual string, msgAndArgs ...in
 }
 
 func TestReparentingTerminate(t *testing.T) {
-	l := withLogger(t, func() {
+	dinit.MainContext, dinit.MainCancel = context.WithCancel(context.Background())
+
+	l := withLogger(t, log.Default(), func() {
 		cmd := exec.Command("/bin/sleep", "infinity")
 		e := cmd.Start()
 		require.NoError(t, e)
@@ -96,7 +99,7 @@ func TestReparentingTerminate(t *testing.T) {
 		// So that the command runs.
 		time.Sleep(10 * time.Millisecond)
 
-		g, ctx := errgroup.WithContext(context.Background())
+		g, ctx := errgroup.WithContext(dinit.MainContext)
 
 		waiting := make(chan struct{})
 		dinit.ProcessPid(ctx, g, dinit.ReparentingTerminate, cmd.Process.Pid, waiting)
@@ -115,7 +118,9 @@ func TestReparentingTerminate(t *testing.T) {
 }
 
 func TestReparentingAdoptCancel(t *testing.T) {
-	l := withLogger(t, func() {
+	dinit.MainContext, dinit.MainCancel = context.WithCancel(context.Background())
+
+	l := withLogger(t, log.Default(), func() {
 		cmd := exec.Command("/bin/sleep", "infinity")
 		e := cmd.Start()
 		require.NoError(t, e)
@@ -127,7 +132,7 @@ func TestReparentingAdoptCancel(t *testing.T) {
 		// So that the command runs.
 		time.Sleep(10 * time.Millisecond)
 
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(dinit.MainContext)
 
 		g, ctx := errgroup.WithContext(ctx)
 
@@ -154,7 +159,9 @@ func TestReparentingAdoptCancel(t *testing.T) {
 }
 
 func TestReparentingAdoptFinish(t *testing.T) {
-	l := withLogger(t, func() {
+	dinit.MainContext, dinit.MainCancel = context.WithCancel(context.Background())
+
+	l := withLogger(t, log.Default(), func() {
 		stdin, stdinWriter, e := os.Pipe()
 		require.NoError(t, e)
 		t.Cleanup(func() {
@@ -174,7 +181,7 @@ func TestReparentingAdoptFinish(t *testing.T) {
 		// So that the command runs.
 		time.Sleep(10 * time.Millisecond)
 
-		g, ctx := errgroup.WithContext(context.Background())
+		g, ctx := errgroup.WithContext(dinit.MainContext)
 
 		waiting := make(chan struct{})
 		dinit.ProcessPid(ctx, g, dinit.ReparentingAdopt, cmd.Process.Pid, waiting)
@@ -257,7 +264,7 @@ func TestIsZombie(t *testing.T) {
 }
 
 func TestRedirectJSON(t *testing.T) {
-	l := withLogger(t, func() {
+	l := withLogger(t, log.Default(), func() {
 		var in bytes.Buffer
 		var out bytes.Buffer
 		in.WriteString(`{"test":"foo"}`)
@@ -267,7 +274,7 @@ func TestRedirectJSON(t *testing.T) {
 	})
 	assert.Equal(t, "", l)
 
-	l = withLogger(t, func() {
+	l = withLogger(t, log.Default(), func() {
 		var in bytes.Buffer
 		var out bytes.Buffer
 		in.WriteString(`test`)
@@ -279,7 +286,7 @@ func TestRedirectJSON(t *testing.T) {
 }
 
 func TestRedirectToLogWithPrefix(t *testing.T) {
-	l := withLogger(t, func() {
+	l := withLogger(t, log.Default(), func() {
 		var in bytes.Buffer
 		var out bytes.Buffer
 		outLog := log.New(&out, "", 0)
@@ -289,4 +296,87 @@ func TestRedirectToLogWithPrefix(t *testing.T) {
 		assert.Regexp(t, `.+Z test/run: test`, out.String())
 	})
 	assert.Equal(t, "", l)
+}
+
+func TestRunNoServices(t *testing.T) {
+	dinit.MainContext, dinit.MainCancel = context.WithCancel(context.Background())
+
+	l := withLogger(t, log.Default(), func() {
+		dir := t.TempDir()
+		g, ctx := errgroup.WithContext(dinit.MainContext)
+		err := dinit.RunServices(ctx, g, dir)
+		require.NoError(t, err)
+		e := g.Wait()
+		require.NoError(t, e)
+	})
+	assert.Regexp(t, `.+Z dinit: warning: no services found, exiting\n`, l)
+}
+
+func TestRunServices(t *testing.T) {
+	t.Setenv("DINIT_JSON_STDOUT", "0")
+	dinit.MainContext, dinit.MainCancel = context.WithCancel(context.Background())
+
+	var stdout string
+	stderr := withLogger(t, log.Default(), func() {
+		stdout = withLogger(t, dinit.StdOutLog, func() {
+			dir := t.TempDir()
+			e := os.Mkdir(path.Join(dir, "service1"), 0o755)
+			require.NoError(t, e)
+			e = os.WriteFile(path.Join(dir, "service1", "run"), []byte("#!/bin/sh\necho start\n>&2 echo starterr\nexec sleep 1"), 0o755) //nolint:gosec
+			require.NoError(t, e)
+			e = os.Mkdir(path.Join(dir, "service2"), 0o755)
+			require.NoError(t, e)
+			e = os.WriteFile(path.Join(dir, "service2", "run"), []byte("#!/bin/sh\necho start\n>&2 echo starterr\nexec sleep infinity"), 0o755) //nolint:gosec
+			require.NoError(t, e)
+			e = os.WriteFile(path.Join(dir, "service2", "finish"), []byte("#!/bin/sh\necho end\n>&2 echo enderr\nkill -TERM $DINIT_PID"), 0o755) //nolint:gosec
+			require.NoError(t, e)
+			e = os.Mkdir(path.Join(dir, "service3"), 0o755)
+			require.NoError(t, e)
+			e = os.WriteFile(path.Join(dir, "service3", "run"), []byte("#!/bin/sh\necho start\n>&2 echo starterr\nexec sleep infinity"), 0o755) //nolint:gosec
+			require.NoError(t, e)
+			e = os.Mkdir(path.Join(dir, "service3", "log"), 0o755)
+			require.NoError(t, e)
+			e = os.WriteFile(path.Join(dir, "service3", "log", "run"), []byte("#!/bin/sh\necho log\n>&2 echo logerr\nexec cat"), 0o755) //nolint:gosec
+			require.NoError(t, e)
+			g, ctx := errgroup.WithContext(dinit.MainContext)
+			err := dinit.RunServices(ctx, g, dir)
+			require.NoError(t, err)
+			e = g.Wait()
+			require.NoError(t, e)
+
+			// So that the goroutine reading stdout and stderr from the process completes.
+			time.Sleep(10 * time.Millisecond)
+		})
+	})
+	assertLogs(t, []string{
+		`.+Z dinit: info: service1/run: starting`,
+		`.+Z dinit: info: service3/run: starting`,
+		`.+Z dinit: info: service2/run: starting`,
+		`.+Z dinit: info: service1/run: running with PID \d+`,
+		`.+Z dinit: info: service2/run: running with PID \d+`,
+		`.+Z service1/run: starterr`,
+		`.+Z dinit: info: service3/run: running with PID \d+`,
+		`.+Z dinit: info: service3/log: starting`,
+		`.+Z service2/run: starterr`,
+		`.+Z dinit: info: service3/log: running with PID \d+`,
+		`.+Z service3/run: starterr`,
+		`.+Z service3/log: logerr`,
+		`.+Z dinit: info: service1/run: PID \d+ finished with status 0`,
+		`.+Z dinit: info: service2/run: finishing`,
+		`.+Z dinit: info: service3/run: finishing`,
+		`.+Z dinit: info: service3/run: sending SIGTERM to PID \d+`,
+		`.+Z dinit: info: service3/run: PID \d+ finished with signal 15`,
+		`.+Z dinit: info: service3/log: PID \d+ finished with status 0`,
+		`.+Z dinit: info: service2/finish: running with PID \d+`,
+		`.+Z service2/finish: enderr`,
+		`.+Z dinit: info: service2/finish: PID \d+ finished with status 0`,
+		`.+Z dinit: info: service2/run: PID \d+ finished with signal 15`,
+	}, stderr)
+	assertLogs(t, []string{
+		`.+Z service1/run: start`,
+		`.+Z service2/run: start`,
+		`.+Z service3/run: log`,
+		`.+Z service3/run: start`,
+		`.+Z service2/finish: end`,
+	}, stdout)
 }
