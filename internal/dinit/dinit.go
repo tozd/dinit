@@ -45,7 +45,7 @@ import (
 	"gitlab.com/tozd/dinit/internal/pcontrol"
 )
 
-const etcService = "/etc/service"
+const defaultDir = "/etc/service"
 
 // We check for new reparented processes at a regular interval and trigger configured
 // reparenting policy on them. Reparenting also happens on SIGCHLD signal so interval
@@ -211,7 +211,11 @@ func Main() {
 	}
 
 	g.Go(func() error {
-		return runServices(ctx, g)
+		dir := os.Getenv("DINIT_DIR")
+		if dir == "" {
+			dir = defaultDir
+		}
+		return runServices(ctx, g, dir)
 	})
 
 	// The assertion here is that once runServices and reparenting goroutines return
@@ -331,8 +335,8 @@ func cmdRun(cmd *exec.Cmd) errors.E {
 	return err
 }
 
-func runServices(ctx context.Context, g *errgroup.Group) errors.E {
-	entries, e := os.ReadDir(etcService)
+func runServices(ctx context.Context, g *errgroup.Group, dir string) errors.E {
+	entries, e := os.ReadDir(dir)
 	if e != nil {
 		err := errors.WithStack(e)
 		maybeSetExitCode(exitDinitFailure, err)
@@ -345,7 +349,7 @@ func runServices(ctx context.Context, g *errgroup.Group) errors.E {
 		if strings.HasPrefix(name, ".") {
 			continue
 		}
-		p := path.Join(etcService, name)
+		p := path.Join(defaultDir, name)
 		info, e := os.Stat(p)
 		if e != nil {
 			err := errors.WithStack(e)
