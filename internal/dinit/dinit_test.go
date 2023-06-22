@@ -97,7 +97,7 @@ func TestReparentingTerminate(t *testing.T) {
 		})
 
 		// So that the command runs.
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(15 * time.Millisecond)
 
 		g, ctx := errgroup.WithContext(dinit.MainContext)
 
@@ -130,7 +130,7 @@ func TestReparentingAdoptCancel(t *testing.T) {
 		})
 
 		// So that the command runs.
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(15 * time.Millisecond)
 
 		ctx, cancel := context.WithCancel(dinit.MainContext)
 
@@ -147,7 +147,7 @@ func TestReparentingAdoptCancel(t *testing.T) {
 		require.ErrorAs(t, e, &context.Canceled)
 
 		// So that the goroutine reading stdout and stderr from the process completes.
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(15 * time.Millisecond)
 	})
 
 	assertLogs(t, []string{
@@ -179,7 +179,7 @@ func TestReparentingAdoptFinish(t *testing.T) {
 		})
 
 		// So that the command runs.
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(15 * time.Millisecond)
 
 		g, ctx := errgroup.WithContext(dinit.MainContext)
 
@@ -194,7 +194,7 @@ func TestReparentingAdoptFinish(t *testing.T) {
 		require.NoError(t, e)
 
 		// So that the goroutine reading stdout and stderr from the process completes.
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(15 * time.Millisecond)
 	})
 
 	assertLogs(t, []string{
@@ -224,7 +224,7 @@ func TestGetProcessInfo(t *testing.T) {
 			})
 
 			// So that the command runs.
-			time.Sleep(10 * time.Millisecond)
+			time.Sleep(15 * time.Millisecond)
 
 			cmdline, name, stage, err := dinit.GetProcessInfo(cmd.Process.Pid)
 			assert.NoError(t, err)
@@ -254,7 +254,7 @@ func TestIsZombie(t *testing.T) {
 			})
 
 			// So that the command runs.
-			time.Sleep(10 * time.Millisecond)
+			time.Sleep(15 * time.Millisecond)
 
 			z, err := dinit.IsZombie(cmd.Process.Pid)
 			assert.NoError(t, err)
@@ -345,7 +345,7 @@ func TestRunServices(t *testing.T) {
 			require.NoError(t, e)
 
 			// So that the goroutine reading stdout and stderr from the process completes.
-			time.Sleep(10 * time.Millisecond)
+			time.Sleep(15 * time.Millisecond)
 		})
 	})
 	assertLogs(t, []string{
