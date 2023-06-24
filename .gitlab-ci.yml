@@ -128,7 +128,7 @@ docker:
       --tag "$CI_REGISTRY_IMAGE/commit:$CI_COMMIT_SHA" .
     - docker push "$DOCKER_PIPELINE_IMAGE_NAME"
     - docker push "$CI_REGISTRY_IMAGE/commit:$CI_COMMIT_SHA"
-    - export IMAGE_ID=$(docker create dinit)
+    - export IMAGE_ID=$(docker create "$DOCKER_PIPELINE_IMAGE_NAME")
     - docker cp "$IMAGE_ID:/dinit" dinit-linux-amd64
     - docker rm "$IMAGE_ID"
     - docker run --rm -v "$(pwd)/tests/service:/etc/service" -e DINIT_LOG_LEVEL=debug "$DOCKER_PIPELINE_IMAGE_NAME" > >(tee -a defaults-stdout.log) 2> >(tee -a defaults-stderr.log >&2)
