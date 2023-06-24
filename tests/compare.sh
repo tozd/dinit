@@ -8,5 +8,9 @@ for file in *.log; do
   sed -E -i 's/[^ "]+Z/Z/g' "$file"
   sed -E -i 's/: [^:]+[0-9]+:[0-9]+:[0-9]+ UTC .+/: Z/g' "$file"
   sort -u -o "$file" "$file"
+done
+
+for file in *.log; do
+  echo "$file"
   diff "$file" "tests/$file"
 done
