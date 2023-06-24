@@ -1,0 +1,7 @@
+#!/bin/sh
+
+sleep 5s
+
+(bash -c "(while true; do LC_ALL=C date ; sleep 1; done)" &)
+
+sleep infinity

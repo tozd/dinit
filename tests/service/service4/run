@@ -1,0 +1,6 @@
+#!/bin/sh
+
+while true; do
+  LC_ALL=C date
+  sleep 1
+done

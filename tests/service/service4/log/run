@@ -1,0 +1,3 @@
+#!/bin/sh
+
+exec regex2json "(?P<date___time__UnixDate>.+)"

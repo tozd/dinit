@@ -1,0 +1,5 @@
+Z service1/run: foo
+Z service1/run: {"test": "foo"}
+Z service2/run: {"so": "me"}
+Z service3/run: Z
+Z service4/run: {"date":"Z"}

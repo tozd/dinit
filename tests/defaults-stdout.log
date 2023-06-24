@@ -1,0 +1,3 @@
+{"date":"Z","service":"service4","stage":"run","logged":"Z"}
+{"so": "me","service":"service2","stage":"run","logged":"Z"}
+{"test": "foo","service":"service1","stage":"run","logged":"Z"}
