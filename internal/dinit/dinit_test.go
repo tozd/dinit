@@ -215,7 +215,7 @@ func TestGetProcessInfo(t *testing.T) {
 		{[]string{"/bin/sleep", "infinity"}, "/bin/sleep infinity", "sleep"},
 	} {
 		t.Run(strings.Join(tt.Cmd, " "), func(t *testing.T) {
-			cmd := exec.Command(tt.Cmd[0], tt.Cmd[1:]...)
+			cmd := exec.Command(tt.Cmd[0], tt.Cmd[1:]...) //nolint:gosec
 			e := cmd.Start()
 			require.NoError(t, e)
 			t.Cleanup(func() {
@@ -245,7 +245,7 @@ func TestIsZombie(t *testing.T) {
 		{[]string{"/bin/sleep", "infinity"}, false},
 	} {
 		t.Run(strings.Join(tt.Cmd, " "), func(t *testing.T) {
-			cmd := exec.Command(tt.Cmd[0], tt.Cmd[1:]...)
+			cmd := exec.Command(tt.Cmd[0], tt.Cmd[1:]...) //nolint:gosec
 			e := cmd.Start()
 			require.NoError(t, e)
 			t.Cleanup(func() {

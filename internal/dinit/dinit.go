@@ -123,7 +123,7 @@ func processNotExist(err error) bool {
 	return errors.Is(err, os.ErrNotExist) || errors.Is(err, unix.ESRCH) || errors.Is(err, syscall.ESRCH) || errors.Is(err, os.ErrProcessDone)
 }
 
-var MainContext, MainCancel = context.WithCancel(context.Background())
+var MainContext, MainCancel = context.WithCancel(context.Background()) //nolint:revive
 
 var mainPid = os.Getpid()
 
