@@ -84,7 +84,7 @@ var procStatRegexp = regexp.MustCompile(`\((.*)\) (.+)`)
 
 var _SC_CLK_TCK = getClockTicks() //nolint:revive,stylecheck
 
-const matureProcess = 10 * time.Millisecond
+const matureProcessAge = 10 * time.Millisecond
 
 // We manually prefix logging.
 const logFlags = 0
@@ -816,11 +816,17 @@ func ProcessPid(ctx context.Context, g *errgroup.Group, policy policyFunc, pid i
 		// called exec. Then inspecting its command line shows information from parent process.
 		age, err := ProcessAge(pid)
 		if err != nil {
+			if processNotExist(err) {
+				// Not a problem, the process does not exist anymore, we do not have to do anything about it anymore.
+				// In this case it is OK if the policy gets called multiple times, it will just not do anything anymore.
+				return nil
+			}
+			maybeSetExitCode(exitDinitFailure, err)
 			return err
 		}
-		w := matureProcess - age
-		if w > 0 {
-			time.Sleep(w)
+		a := matureProcessAge - age
+		if a > 0 {
+			time.Sleep(a)
 		}
 
 		return policy(ctx, g, pid, waiting)
@@ -1020,8 +1026,7 @@ func ReparentingAdopt(ctx context.Context, g *errgroup.Group, pid int, waiting c
 	if err != nil {
 		if processNotExist(err) {
 			// Not a problem, the process does not exist anymore, we do not have to do anything about it anymore.
-			// In this case it is OK if reparentingAdopt gets called multiple times,
-			// it will just not do anything anymore.
+			// In this case it is OK if the policy gets called multiple times, it will just not do anything anymore.
 			return nil
 		}
 		maybeSetExitCode(exitDinitFailure, err)
@@ -1151,8 +1156,7 @@ func ReparentingTerminate(_ context.Context, g *errgroup.Group, pid int, waiting
 	if err != nil {
 		if processNotExist(err) {
 			// Not a problem, the process does not exist anymore, we do not have to do anything about it anymore.
-			// In this case it is OK if reparentingTerminate gets called multiple times,
-			// it will just not do anything anymore.
+			// In this case it is OK if the policy gets called multiple times, it will just not do anything anymore.
 			return nil
 		}
 		maybeSetExitCode(exitDinitFailure, err)
