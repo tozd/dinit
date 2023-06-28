@@ -74,7 +74,17 @@ const (
 	exitServiceFailure = 3
 )
 
-var procStatRegexp = regexp.MustCompile(`\((.*)\) (.)`)
+const (
+	procStatOffset    = 3
+	procStatState     = 3
+	procStatStartTime = 22
+)
+
+var procStatRegexp = regexp.MustCompile(`\((.*)\) (.+)`)
+
+var _SC_CLK_TCK = getClockTicks() //nolint:revive,stylecheck
+
+const matureProcess = 10 * time.Millisecond
 
 // We manually prefix logging.
 const logFlags = 0
@@ -800,6 +810,19 @@ func ProcessPid(ctx context.Context, g *errgroup.Group, policy policyFunc, pid i
 		// when the associated process has finished and can be called without an issue with PID
 		// of a non-existing process (before PID gets recycled though).
 		defer removeProcessedPid(pid)
+
+		// We want to make sure we process only mature processes. Otherwise it might happen that we process
+		// a process which has double forked (to daemonize) and got reparented to dinit, but has not yet
+		// called exec. Then inspecting its command line shows information from parent process.
+		age, err := ProcessAge(pid)
+		if err != nil {
+			return err
+		}
+		w := matureProcess - age
+		if w > 0 {
+			time.Sleep(w)
+		}
+
 		return policy(ctx, g, pid, waiting)
 	})
 }
@@ -895,39 +918,67 @@ func getProcessCommandLine(pid int) (string, errors.E) {
 
 // This is an utility function, so we do not call maybeSetExitCode(exitDinitFailure) on
 // errors but leave it to the caller to decide if and when to do so.
-// TODO: Should we use waitid with WEXITED|WNOHANG|WNOWAIT options?
-func IsZombie(pid int) (bool, errors.E) {
+func getProcessStatus(pid int) (string, []string, errors.E) {
 	statPath := fmt.Sprintf("/proc/%d/stat", pid)
 	statData, e := os.ReadFile(statPath)
 	if e != nil {
 		if processNotExist(e) {
-			return false, errors.WithStack(os.ErrProcessDone)
+			return "", nil, errors.WithStack(os.ErrProcessDone)
 		}
-		return false, errors.WithStack(e)
+		return "", nil, errors.WithStack(e)
 	}
 	match := procStatRegexp.FindSubmatch(statData)
 	if len(match) != 3 { //nolint:gomnd
-		return false, errors.Errorf("could not match process state in %s: %s", statPath, statData)
+		return "", nil, errors.Errorf("could not match process status in %s: %s", statPath, statData)
 	}
-	return string(match[2]) == "Z", nil
+	return string(match[1]), strings.Fields(string(match[2])), nil
+}
+
+// This is an utility function, so we do not call maybeSetExitCode(exitDinitFailure) on
+// errors but leave it to the caller to decide if and when to do so.
+// TODO: Should we use waitid with WEXITED|WNOHANG|WNOWAIT options?
+func IsZombie(pid int) (bool, errors.E) {
+	_, info, err := getProcessStatus(pid)
+	if err != nil {
+		return false, err
+	}
+	return info[procStatState-procStatOffset] == "Z", nil
+}
+
+// This is an utility function, so we do not call maybeSetExitCode(exitDinitFailure) on
+// errors but leave it to the caller to decide if and when to do so.
+func ProcessAge(pid int) (time.Duration, errors.E) {
+	_, info, err := getProcessStatus(pid)
+	if err != nil {
+		return 0, err
+	}
+	startTime, e := strconv.ParseUint(info[procStatStartTime-procStatOffset], 10, 64)
+	if e != nil {
+		return 0, errors.Errorf("failed to parse process start time %s: %w", info[procStatStartTime-procStatOffset], e)
+	}
+	// We first compute time.Second / _SC_CLK_TCK to not lose precision.
+	startTimeSinceBoot := time.Duration(startTime * (uint64(time.Second) / uint64(_SC_CLK_TCK)))
+
+	uptimeData, e := os.ReadFile("/proc/uptime")
+	if e != nil {
+		return 0, errors.WithStack(e)
+	}
+	uptime, e := strconv.ParseFloat(strings.Fields(string(uptimeData))[0], 64)
+	if e != nil {
+		return 0, errors.Errorf("failed to parse uptime %s: %w", strings.Fields(string(uptimeData))[0], e)
+	}
+
+	return time.Duration(uptime*float64(time.Second)) - startTimeSinceBoot, nil
 }
 
 // This is an utility function, so we do not call maybeSetExitCode(exitDinitFailure) on
 // errors but leave it to the caller to decide if and when to do so.
 func getProcessProgramName(pid int) (string, errors.E) {
-	statPath := fmt.Sprintf("/proc/%d/stat", pid)
-	statData, e := os.ReadFile(statPath)
-	if e != nil {
-		if processNotExist(e) {
-			return "", errors.WithStack(os.ErrProcessDone)
-		}
-		return "", errors.WithStack(e)
+	name, _, err := getProcessStatus(pid)
+	if err != nil {
+		return "", err
 	}
-	match := procStatRegexp.FindSubmatch(statData)
-	if len(match) != 3 { //nolint:gomnd
-		return "", errors.Errorf("could not match executable name in %s: %s", statPath, statData)
-	}
-	return string(match[1]), nil
+	return name, nil
 }
 
 // This is an utility function, so we do not call maybeSetExitCode(exitDinitFailure) on

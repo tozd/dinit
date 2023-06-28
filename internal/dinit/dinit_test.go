@@ -263,6 +263,23 @@ func TestIsZombie(t *testing.T) {
 	}
 }
 
+func TestProcessAge(t *testing.T) {
+	cmd := exec.Command("/bin/sleep", "infinity")
+	e := cmd.Start()
+	require.NoError(t, e)
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+	})
+
+	// So that the command runs.
+	time.Sleep(15 * time.Millisecond)
+
+	age, err := dinit.ProcessAge(cmd.Process.Pid)
+	assert.NoError(t, err)
+	assert.InDelta(t, time.Second, age, float64(time.Second))
+}
+
 func TestRedirectJSON(t *testing.T) {
 	l := withLogger(t, log.Default(), func() {
 		var in bytes.Buffer
