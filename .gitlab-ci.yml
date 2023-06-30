@@ -134,6 +134,7 @@ docker:
     - docker run --rm -v "$(pwd)/tests/service:/etc/service" -e DINIT_LOG_LEVEL=debug "$DOCKER_PIPELINE_IMAGE_NAME" > >(tee -a defaults-stdout.log) 2> >(tee -a defaults-stderr.log >&2)
     - docker run --rm -v "$(pwd)/tests/service:/etc/service" -e DINIT_LOG_LEVEL=debug -e DINIT_REPARENTING_POLICY=adopt "$DOCKER_PIPELINE_IMAGE_NAME" > >(tee -a adopt-stdout.log) 2> >(tee -a adopt-stderr.log >&2)
     - docker run --rm -v "$(pwd)/tests/service:/etc/service" -e DINIT_LOG_LEVEL=debug -e DINIT_JSON_STDOUT=0 "$DOCKER_PIPELINE_IMAGE_NAME" > >(tee -a nojson-stdout.log) 2> >(tee -a nojson-stderr.log >&2)
+    - ./tests/compare.sh
 
   artifacts:
     expose_as: binaries
