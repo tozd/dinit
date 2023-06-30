@@ -2,6 +2,9 @@
 
 set -e
 
+# To have traditional sort order that uses native byte values.
+export LC_ALL=C
+
 for file in *.log; do
   # We remove PIDs of adopted processes (they are in the form "processname/pid").
   sed -E -i 's/\/[0-9]+/\/X/g' "$file"
