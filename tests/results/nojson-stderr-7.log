@@ -31,3 +31,5 @@ Z dinit: warning: date/X: reaping process with PID X
 Z dinit: warning: sleep/X: terminating reparented child process with PID X: sleep 1
 Z dinit: warning: sleep/X: terminating reparented child process with PID X: sleep 3
 Z service1/run: test
+Z service4/log: logstderr
+Z service4/run: stderr

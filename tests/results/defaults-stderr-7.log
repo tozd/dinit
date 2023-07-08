@@ -30,3 +30,5 @@ Z dinit: warning: service1/run: not JSON stdout: foo
 Z dinit: warning: service3/run: not JSON stdout: Z
 Z dinit: warning: sleep/X: terminating reparented child process with PID X: sleep 3
 Z service1/run: test
+Z service4/log: logstderr
+Z service4/run: stderr

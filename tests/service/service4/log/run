@@ -1,3 +1,5 @@
 #!/bin/sh
 
+echo "logstderr" >&2
+
 exec regex2json "(?P<date___time__UnixDate>.+)"
