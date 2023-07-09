@@ -86,6 +86,35 @@ Configuration of dinit itself is done through environment variables:
   to send the KILL signal to a reparented process? Default is 30 seconds.
 - `DINIT_DIR`: In which directory to look for programs to run. Default is `/etc/service`.
 
+## What was the motivation to start this project?
+
+In [our Docker images](https://gitlab.com/tozd/docker) we used
+[runit init system](https://gitlab.com/tozd/docker/runit) but we discovered that
+images [are not gracefully shut down](https://gitlab.com/tozd/docker/runit/-/issues/1). For example,
+databases were often not cleanly shut down. This happens because after runit receives the TERM signal
+and passes it on to running processes it immediately terminates itself causing Docker to believe that
+the container has finished, after which Docker KILLs any remaining processes, including the database
+which has not yet cleanly shut down.
+
+## Why is JSON used just for stdout and not also for stderr?
+
+It is hard to generate proper JSON once things start failing apart (e.g.,
+[Go runtime panic](https://github.com/golang/go/issues/40238)). The idea is that under default logging level,
+stdout should be used for expected logging from programs while anything written to stderr by dinit or any program
+is exceptional and means a human intervention is needed. You should setup programs run by dinit this way as well.
+
+## runit supports dependencies between programs, why not dinit?
+
+runit compatibility is in how programs to run are specified, including a logging program and a finish program.
+But there are many aspects of runit which are not supported by dinit (e.g., dinit does not expose status
+information of programs through files) which also prevents
+[waiting for another program to start](http://smarden.org/runit/faq.html#depends). There are two reasons for
+this. Creating files inside `DINIT_DIR` directory (like runit does) requires `DINIT_DIR` to be writable,
+but writing outside of volumes in Docker containers is discouraged. Waiting for another program to start does
+not necessary mean that the another program is also ready. This means that often it is better to have a
+program-specific way to test if another program is ready which can be done inside the `run` file and is
+out of scope of dinit itself.
+
 ## GitHub mirror
 
 There is also a [read-only GitHub mirror available](https://github.com/tozd/dinit),
