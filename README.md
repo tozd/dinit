@@ -37,17 +37,17 @@ Features:
 - It uses stderr for its own errors. The idea here is that stdout should be used for expected
   logging from programs while anything written to stderr by dinit or any program is exceptional
   and that it cannot be assured to be JSON (e.g., Go runtime panic).
-- It extends reaping of zombie processes to any running process which gets reparented to dinit
+- It extends reaping of zombie processes to handling any running process which gets reparented to dinit
   (when the parent of such process exits before its child, e.g., when process is
   [daemonized](<https://en.wikipedia.org/wiki/Daemon_(computing)>)).
   By default it terminates such processes (any daemonization is seen as configuration error)
   but it also supports adopting such processes. When dinit adopts a reparented process it
-  redirects stdout and stderr of the process to itself.
-- Instead of default TERM signal it supports `finish` program to be called to terminate the main
-  program (e.g., which can call `nginx -s quit`).
+  redirects stdout and stderr of the process to dinit itself.
+- Instead of default TERM signal one can provide a `finish` program to be called to terminate
+  the main program (e.g., which can call `nginx -s quit`).
 - Supports a logging program which then receives stdout from the main program. You can use it
   to redirect logs to a file or elsewhere, or to convert non-JSON logging to JSON logging
-  (using [regex2json](https://gitlab.com/tozd/regex2json) tool). Any stdout and stderr output
+  (e.g., using [regex2json](https://gitlab.com/tozd/regex2json) tool). Any stdout and stderr output
   from the logging program is then used by dinit as stdout and stderr output of the main program.
 - Configuration of dinit itself is done through environment variables.
 
