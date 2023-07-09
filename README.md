@@ -9,8 +9,9 @@ consist of multiple different programs? Or when this service spawns sub-processe
 Docker containers comes into the effect: they all have the init process (PID 1)
 which has to reap zombie processes and handle signals from the container's supervisor. Using a program
 as the init process which does not expect to handle subprocesses and signals (e.g., distroless builds or naive
-application bundles) properly can lead to resource exhaustion or data loss. Docker containers are similar
-but not exactly the same as a full Linux system so traditional init systems are not the best fit for Docker containers.
+application bundles) properly can [lead to resource exhaustion or data loss](#what-was-the-motivation-to-start-this-project).
+Docker containers are similar but not exactly the same as a full Linux system so traditional init systems
+are not the best fit for Docker containers.
 
 dinit is an opinionated init for Docker containers which has been specially designed for operation
 inside Docker containers and does things slightly differently than traditional init systems but it
