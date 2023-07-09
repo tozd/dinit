@@ -31,7 +31,7 @@ Features:
   container's supervisor does that anyway if the whole container takes too long to terminate.
 - It line-wise multiplexes stdout and stderr from programs into its own stdout and stderr
   so that all logs are available through `docker logs` or similar log collecting mechanism.
-- To every stdout line it adds program's name and timestamp metadata. When configured that
+- To every logged line it adds program's name and timestamp metadata. When configured that
   stdout contains JSON per line (default), it adds metadata as JSON fields, otherwise it
   prepends metadata to every line. It prepends metadata to stderr as well.
 - It uses stderr for its own errors. The idea here is that stdout should be used for expected
