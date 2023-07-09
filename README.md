@@ -68,6 +68,24 @@ To install the latest development version (`main` branch):
 go install gitlab.com/tozd/dinit/cmd/dinit@main
 ```
 
+### Configuration
+
+Configuration of dinit itself is done through environment variables:
+
+- `DINIT_JSON_STDOUT`: By default dinit expects stdout lines to be JSON objects. It does a basic check
+  to verify this is so and if not it complains to its stderr. Set this variable to `0` to disable JSON
+  processing. Setting it to `0` also makes dinit prepend program's name and timestamp metadata to
+  the line instead of adding metadata as JSON fields.
+- `DINIT_LOG_LEVEL`: The level at which dinit logs. Default is `warn`. Possible levels are `none`,
+  `error`, `warn`, `info`, and `debug`.
+- `DINIT_REPARENTING_POLICY`: Default is `terminate`. Possible policies are `adopt`, `terminate`, and
+  `ignore`. `terminate` policy terminates any process which gets reparented to dinit.
+  `adopt` policy waits for the process to terminate (and then terminates the whole container). When adopting
+  a process dinit also redirects stdout and stderr of the process to dinit itself.
+- `DINIT_KILL_TIMEOUT`: How long (in seconds) does `terminate` policy waits after sending the TERM signal
+  to send the KILL signal to a reparented process? Default is 30 seconds.
+- `DINIT_DIR`: In which directory to look for programs to run. Default is `/etc/service`.
+
 ## GitHub mirror
 
 There is also a [read-only GitHub mirror available](https://github.com/tozd/dinit),
