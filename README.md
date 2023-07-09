@@ -4,13 +4,13 @@
 [![pipeline status](https://gitlab.com/tozd/dinit/badges/main/pipeline.svg?ignore_skipped=true)](https://gitlab.com/tozd/dinit/-/pipelines)
 [![coverage report](https://gitlab.com/tozd/dinit/badges/main/coverage.svg)](https://gitlab.com/tozd/dinit/-/graphs/main/charts)
 
-Docker containers should generally contain one service per container. But what when this service
-consist of multiple different programs? Or when this service spawns sub-processes? Then a less
-known fact about Docker containers comes into the effect: they all have the init process (PID 1)
-which has to reap zombie processes and handle signals from container's supervisor. Using a program
-as the init process which does not do that (e.g., it does not expect to be run as the init process)
-properly can lead to resource exhaustion or data loss. Docker containers are similar but not exactly
-the same as a full Linux system so traditional init systems are not the best fit for Docker containers.
+Docker containers should generally contain one service per container. But what happens when this service
+consist of multiple different programs? Or when this service spawns sub-processes? Then a less-known fact about
+Docker containers comes into the effect: they all have the init process (PID 1)
+which has to reap zombie processes and handle signals from the container's supervisor. Using a program
+as the init process which does not expect to handle subprocesses and signals (e.g., distroless builds or naive
+application bundles) properly can lead to resource exhaustion or data loss. Docker containers are similar
+but not exactly the same as a full Linux system so traditional init systems are not the best fit for Docker containers.
 
 dinit is an opinionated init for Docker containers which has been specially designed for operation
 inside Docker containers and does things slightly differently than traditional init systems but it
@@ -23,17 +23,17 @@ Features:
 - It supports running multiple different programs inside a Docker container, compatible with
   [runit init system](http://smarden.org/runit/). If any program finishes, dinit terminates
   the whole container so that container's supervisor can decide whether to restart the whole
-  container or do something else, e.g., backoff (and to even log that container has terminated).
+  container or do something else, e.g., a backoff or to even log that container has terminated.
   Traditional init systems restart programs themselves, but that then hides any issues from the
   container's supervisor. Moreover, traditional init systems generally do not do any backoff
   between restarts.
 - On TERM signal it gracefully terminates all programs. It just sends them TERM signal as well
   (by default) and then waits for them to terminate. It does not send them KILL signal because
-  container's supervisor does that anyway if the whole container takes too long to terminate.
+  the container's supervisor does that anyway if the whole container takes too long to terminate.
 - It line-wise multiplexes stdout and stderr from programs into its own stdout and stderr
   so that all logs are available through `docker logs` or similar log collecting mechanism.
-- To every logged line it adds program's name and timestamp metadata. When configured that
-  stdout contains JSON per line (default), it adds metadata as JSON fields, otherwise it
+- To every logged line it adds the program's name and timestamp metadata. When configured that
+  stdout contains JSON per line (the default), it adds metadata as JSON fields, otherwise it
   prepends metadata to every line. It prepends metadata to stderr as well.
 - It uses stderr for its own errors. The idea here is that stdout should be used for expected
   logging from programs while anything written to stderr by dinit or any program is exceptional
@@ -54,6 +54,8 @@ Features:
 
 ## Installation
 
+dinit requires Docker 19.03 or newer and Linux kernel versions 4.8 or newer.
+
 [Releases page](https://gitlab.com/tozd/dinit/-/releases)
 contains a list of stable versions. Each includes statically compiled binaries.
 You should just download the latest one inside your Dockerfile.
@@ -72,7 +74,7 @@ go install gitlab.com/tozd/dinit/cmd/dinit@main
 
 ## Usage
 
-dinit requires Docker 19.03 or newer and Linux kernel versions 4.8 or newer. You should configure
+You should configure
 dinit as the [entrypoint](https://docs.docker.com/engine/reference/builder/#entrypoint) in your Docker image.
 When Docker image runs, dinit will then look into `/etc/service` directory (by default, see `DINIT_DIR`)
 for configuration of programs to run. The structure of `/etc/service` directory is
@@ -131,7 +133,7 @@ which would provide all of the features we wanted, so a new project was started.
 
 ## Why is JSON used just for stdout and not also for stderr?
 
-It is hard to generate proper JSON once things start failing apart (e.g.,
+It is hard to generate proper JSON once things start falling apart (e.g.,
 [Go runtime panic](https://github.com/golang/go/issues/40238)). The idea is that under default logging level,
 stdout should be used for expected logging from programs while anything written to stderr by dinit or any program
 is exceptional and means a human intervention is needed. You should setup programs run by dinit this way as well
@@ -145,7 +147,7 @@ information of programs through files and does not create control named pipes) w
 [waiting for another program to start](http://smarden.org/runit/faq.html#depends). There are two reasons for
 this. First, creating files inside `DINIT_DIR` directory (like runit does) requires `DINIT_DIR` to be writable,
 but writing outside of volumes in Docker containers is discouraged. Second, waiting for another program to start does
-not necessary mean that another program is also ready. This means that often it is better to have a
+not necessarily mean that another program is also ready. This means that often it is better to have a
 program-specific way to test if another program is ready which can be done inside the `run` file.
 
 ## Related projects
