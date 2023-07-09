@@ -46,9 +46,9 @@ Features:
 - Instead of default TERM signal one can provide a `finish` file to be run to terminate
   the main program (e.g., which can call `nginx -s quit`).
 - Supports a logging program which then receives stdout from the main program. You can use it
-  to redirect logs to a file or elsewhere, or to convert non-JSON logging to JSON logging
-  (e.g., using [regex2json](https://gitlab.com/tozd/regex2json) tool). Any stdout and stderr output
-  from the logging program is then used by dinit as stdout and stderr output of the main program.
+  to redirect stdout to a file or elsewhere, or to convert non-JSON stdout to JSON
+  (e.g., using [regex2json](https://gitlab.com/tozd/regex2json) tool). Stdout output
+  from the logging program is then used by dinit as stdout of the main program.
 - Configuration of dinit itself is done through environment variables.
 
 ## Installation
@@ -67,6 +67,34 @@ To install the latest development version (`main` branch):
 ```sh
 go install gitlab.com/tozd/dinit/cmd/dinit@main
 ```
+
+## Usage
+
+dinit requires Docker 19.03 or newer and Linux kernel versions 4.8 or newer. You should configure
+dinit as the [entrypoint](https://docs.docker.com/engine/reference/builder/#entrypoint) in your Docker image.
+When Docker image runs, dinit will then look into `/etc/service` directory (by default, see `DINIT_DIR`)
+for configuration of programs to run. The structure of `/etc/service` directory is
+[compatible with runit](http://smarden.org/runit/runsv.8.html) and consists of the following executable
+files for each program to run:
+
+- `/etc/service/<name>/run`: The main executable file which is run to start a program. Generally it is a
+  shell script which prepares program for execution and then [exec](<https://en.wikipedia.org/wiki/Exec_(system_call)>)
+  into the executable of the program you want to run.
+- `/etc/service/<name>/finish`: When present, dinit does not send TERM signal to the process when it wants
+  to terminate it, but runs this executable file. When this file is executed, it receives the PID of the
+  corresponding terminating process through `DINIT_PID` environment variable.
+  Remember, you do not have to KILL the process, just initiate termination.
+  Container's supervisor will KILL any remaining processes anyway.
+- `/etc/service/<name>/log/run`: Optional executable file for a logging program. Stdout of the main program
+  (i.e., from `/etc/service/<name>/run`) is piped to stdin of this program which can then process it.
+  It can be use to redirect stdout to a file or elsewhere, or to convert non-JSON stdout to JSON
+  (e.g., using [regex2json](https://gitlab.com/tozd/regex2json) tool). Any stdout and stderr output
+  from the logging program is then used by dinit as stdout and stderr output of the main program.
+  Stderr output of the main program is still used by dinit as well.
+
+dinit expects programs to not daemonize but to stay running with dinit as their parent process.
+If any program does daemonize, the default `terminate` reparenting policy will simply terminate them.
+(`adopt` reparenting policy will adopt such processes, but that should be more of an exception than a rule.)
 
 ### Configuration
 
