@@ -65,6 +65,9 @@ dinit requires Docker 19.03 or newer and Linux kernel versions 4.8 or newer.
 contains a list of stable versions. Each includes statically compiled binaries.
 You should just download the latest one inside your Dockerfile.
 
+You can also use [tozd/dinit](https://gitlab.com/tozd/docker/dinit) Docker image as a base
+image for your Docker images.
+
 dinit is implemented in Go. You can also use `go install` to install the latest stable (released) version:
 
 ```sh
