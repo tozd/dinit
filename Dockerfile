@@ -12,7 +12,7 @@ RUN \
 
 FROM alpine:3.18
 RUN apk --update --no-cache add tzdata bash && \
-  wget -O /usr/local/bin/regex2json https://gitlab.com/tozd/regex2json/-/releases/v0.1.0/downloads/linux-amd64/regex2json && \
+  wget -O /usr/local/bin/regex2json https://gitlab.com/tozd/regex2json/-/releases/v0.2.0/downloads/linux-amd64/regex2json && \
   chmod +x /usr/local/bin/regex2json
 COPY --from=build /go/bin/dinit /
 ENTRYPOINT ["/dinit"]
