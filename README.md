@@ -54,14 +54,15 @@ Features:
 
 ## Installation
 
-dinit is implemented in Go. You can use `go install` to install the latest stable (released) version:
+[Releases page](https://gitlab.com/tozd/dinit/-/releases)
+contains a list of stable versions. Each includes statically compiled binaries.
+You should just download the latest one inside your Dockerfile.
+
+dinit is implemented in Go. You can also use `go install` to install the latest stable (released) version:
 
 ```sh
 go install gitlab.com/tozd/dinit/cmd/dinit@latest
 ```
-
-[Releases page](https://gitlab.com/tozd/dinit/-/releases)
-contains a list of stable versions. Each includes statically compiled binaries.
 
 To install the latest development version (`main` branch):
 
