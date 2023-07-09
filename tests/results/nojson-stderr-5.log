@@ -30,5 +30,6 @@ Z dinit: warning: bash/X: terminating reparented child process with PID X: bash 
 Z dinit: warning: sleep/X: reaping process with PID X
 Z dinit: warning: sleep/X: terminating reparented child process with PID X: sleep 3
 Z service1/run: test
+Z service4/log: invalid
 Z service4/log: logstderr
 Z service4/run: stderr

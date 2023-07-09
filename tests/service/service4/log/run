@@ -2,4 +2,4 @@
 
 echo "logstderr" >&2
 
-exec regex2json "(?P<date___time__UnixDate>.+)"
+exec regex2json "(?P<date___time__UnixDate>.+\d+)"

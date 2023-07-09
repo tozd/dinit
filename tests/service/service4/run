@@ -2,6 +2,8 @@
 
 echo "stderr" >&2
 
+echo "invalid"
+
 while true; do
   LC_ALL=C date
   sleep 1

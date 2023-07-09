@@ -29,5 +29,6 @@ Z dinit: warning: bash/X: not JSON stdout: x y z
 Z dinit: warning: date/X: reaping process with PID X
 Z dinit: warning: service1/run: not JSON stdout: foo
 Z service1/run: test
+Z service4/log: invalid
 Z service4/log: logstderr
 Z service4/run: stderr
