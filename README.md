@@ -19,38 +19,42 @@ makes much more sense inside Docker containers.
 
 Features:
 
-- It reaps [zombie processes](https://en.wikipedia.org/wiki/Zombie_process) so that they do not
-  accumulate inside a Docker container.
-- It supports running multiple different programs inside a Docker container, compatible with
-  [runit init system](http://smarden.org/runit/). If any program finishes, dinit terminates
-  the whole container so that container's supervisor can decide whether to restart the whole
-  container or do something else, e.g., a backoff or to even log that container has terminated.
-  Traditional init systems restart programs themselves, but that then hides any issues from the
-  container's supervisor. Moreover, traditional init systems generally do not do any backoff
-  between restarts.
-- On TERM signal it gracefully terminates all programs. It just sends them TERM signal as well
-  (by default) and then waits for them to terminate. It does not send them KILL signal because
-  the container's supervisor does that anyway if the whole container takes too long to terminate.
-- It line-wise multiplexes stdout and stderr from programs into its own stdout and stderr
-  so that all logs are available through `docker logs` or similar log collecting mechanism.
-- To every logged line it adds the program's name and timestamp metadata. When configured that
-  stdout contains JSON per line (the default), it adds metadata as JSON fields, otherwise it
-  prepends metadata to every line. It prepends metadata to stderr as well.
-- It uses stderr for its own errors. The idea here is that stdout should be used for expected
-  logging from programs while anything written to stderr by dinit or any program is exceptional
-  and that it cannot be assured to be JSON (e.g., Go runtime panic).
-- It extends reaping of zombie processes to handling any running process which gets reparented to dinit
-  (when the parent of such process exits before its child, e.g., when process is
-  [daemonized](<https://en.wikipedia.org/wiki/Daemon_(computing)>)).
-  By default it terminates such processes (any daemonization is seen as configuration error)
-  but it also supports adopting such processes. When dinit adopts a reparented process it
-  redirects stdout and stderr of the process to dinit itself.
-- Instead of default TERM signal one can provide a `finish` file to be run to terminate
-  the main program (e.g., which can call `nginx -s quit`).
-- Supports a logging program which then receives stdout from the main program. You can use it
-  to redirect stdout to a file or elsewhere, or to convert non-JSON stdout to JSON
-  (e.g., using [regex2json](https://gitlab.com/tozd/regex2json) tool). Stdout output
-  from the logging program is then used by dinit as stdout of the main program.
+- Multi-process:
+  - It supports running multiple different programs inside a Docker container, compatible with
+    [runit init system](http://smarden.org/runit/). If any program finishes, dinit terminates
+    the whole container so that container's supervisor can decide whether to restart the whole
+    container or do something else, e.g., a backoff or to even log that container has terminated.
+    Traditional init systems restart programs themselves, but that then hides any issues from the
+    container's supervisor. Moreover, traditional init systems generally do not do any backoff
+    between restarts.
+- Signal handling:
+  - On TERM signal it gracefully terminates all programs. It just sends them TERM signal as well
+    (by default) and then waits for them to terminate. It does not send them KILL signal because
+    the container's supervisor does that anyway if the whole container takes too long to terminate.
+- Managing processes:
+  - It reaps [zombie processes](https://en.wikipedia.org/wiki/Zombie_process) so that they do not
+    accumulate inside a Docker container.
+  - It extends reaping of zombie processes to handling any running process which gets reparented to dinit
+    (when the parent of such process exits before its child, e.g., when process is
+    [daemonized](<https://en.wikipedia.org/wiki/Daemon_(computing)>)).
+    By default it terminates such processes (any daemonization is seen as configuration error)
+    but it also supports adopting such processes. When dinit adopts a reparented process it
+    redirects stdout and stderr of the process to dinit itself.
+  - Instead of default TERM signal one can provide a `finish` file to be run to terminate
+    the main program (e.g., which can call `nginx -s quit`).
+- Managing processes' stdout and stderr:
+  - It line-wise multiplexes stdout and stderr from programs into its own stdout and stderr
+    so that all logs are available through `docker logs` or similar log collecting mechanism.
+  - To every logged line it adds the program's name and timestamp metadata. When configured that
+    stdout contains JSON per line (the default), it adds metadata as JSON fields, otherwise it
+    prepends metadata to every line. It prepends metadata to stderr as well.
+  - It uses stderr for its own errors. The idea here is that stdout should be used for expected
+    logging from programs while anything written to stderr by dinit or any program is exceptional
+    and that it cannot be assured to be JSON (e.g., Go runtime panic).
+  - Supports a logging program which then receives stdout from the main program. You can use it
+    to redirect stdout to a file or elsewhere, or to convert non-JSON stdout to JSON
+    (e.g., using [regex2json](https://gitlab.com/tozd/regex2json) tool). Stdout output
+    from the logging program is then used by dinit as stdout of the main program.
 - Configuration of dinit itself is done through environment variables.
 
 ## Installation
