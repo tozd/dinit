@@ -6,8 +6,9 @@
 
 Docker containers should generally contain one service per container. But what when this service
 consist of multiple different programs? Or when this service spawns sub-processes? Then a less
-known fact about Docker containers comes into the effect: they all have the main process (PID 1)
-which has to reap zombie processes and handle signals from container's supervisor. Not doing that
+known fact about Docker containers comes into the effect: they all have the init process (PID 1)
+which has to reap zombie processes and handle signals from container's supervisor. Using a program
+as the init process which does not do that (e.g., it does not expect to be run as the init process)
 properly can lead to resource exhaustion or data loss. Docker containers are similar but not exactly
 the same as a full Linux system so traditional init systems are not the best fit for Docker containers.
 
@@ -145,6 +146,30 @@ this. First, creating files inside `DINIT_DIR` directory (like runit does) requi
 but writing outside of volumes in Docker containers is discouraged. Second, waiting for another program to start does
 not necessary mean that another program is also ready. This means that often it is better to have a
 program-specific way to test if another program is ready which can be done inside the `run` file.
+
+## Related projects
+
+- [runit](http://smarden.org/runit/index.html) – Awesome init system which looks like it is suitable for use inside
+  Docker containers for its simplicity and small size, but it does not really work well.
+  [Discourse has this script](https://github.com/discourse/discourse_docker/blob/master/image/base/boot)
+  and [baseimage-docker has another one](https://github.com/phusion/baseimage-docker/blob/master/image/bin/my_init)
+  to address some issues.
+- [runsvinit](https://github.com/peterbourgon/runsvinit) – Another solution for issues with running runit inside
+  Docker containers. It suggests that one should run both `runit` and `runsvdir` and not just `runsvdir` inside
+  Docker containers and suggests to write your own `/etc/service/ctrlaltdel` to cleanup processes. dinit just does
+  the right thing and does not require you to write custom cleanup scripts.
+- [ramr/go-reaper](https://github.com/ramr/go-reaper) – Recognizes the same issue of zombie processes in Docker
+  containers when Go programs are used as the init process (PID 1) inside Docker containers and provides a library
+  for Go programs to reap them. dinit supports also non-Go programs.
+- [dumb-init](https://github.com/Yelp/dumb-init) – Init to run a program which is not expecting to be the init process.
+  Supports running only one such program per container.
+- [tini](https://github.com/krallin/tini) – Another init to run a program which is not expecting to be the init process.
+  Now bundled with Docker. Also limited to only one such program per container.
+- [s6-overlay](https://github.com/just-containers/s6-overlay) – Provides utilities for [s6](https://skarnet.org/software/s6/overview.html),
+  another popular init system, for easier use inside Docker containers. It shares many features and
+  [design goals](https://github.com/just-containers/s6-overlay#the-docker-way) with dinit and more and is very
+  configurable. dinit is compatible with runit. dinit is simpler, opinionated, and attempts to be less configurable
+  and simply do the right thing.
 
 ## GitHub mirror
 
