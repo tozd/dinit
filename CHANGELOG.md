@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- If `run` file exits with code 115 it signals that the program is disabling itself
+  and that it does not have to run and the rest of the container is then not terminated.
 - Change name to `stop` file instead of `finish` file to avoid confusion.
   `finish` file is used differently in runit.
 

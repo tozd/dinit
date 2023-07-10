@@ -92,6 +92,9 @@ files for each program to run:
 - `/etc/service/<name>/run`: The main executable file which is run to start a program. Generally it is a
   shell script which prepares program for execution and then [exec](<https://en.wikipedia.org/wiki/Exec_(system_call)>)
   into the executable of the program you want to run.
+  If `run` file finishes with code 115 it signals that the program is disabling itself and that it does not
+  have to run and the rest of the whole container is then not terminated as it would otherwise be when any
+  of its programs finishes.
 - `/etc/service/<name>/stop`: When present, dinit does not send TERM signal to the process when it wants
   to terminate it, but runs this executable file. When this file is executed, it receives the PID of the
   corresponding terminating process through `DINIT_PID` environment variable.

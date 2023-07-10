@@ -74,6 +74,11 @@ const (
 	exitServiceFailure = 3
 )
 
+// If run file finishes with code 115 it signals that the program is disabling itself and
+// that it does not have to run and the rest of the whole container is then not terminated
+// as it would otherwise be when any of its programs finishes.
+const serviceExitDisable = 115
+
 const (
 	procStatOffset    = 3
 	procStatState     = 3
@@ -468,7 +473,10 @@ func RedirectJSON(stage, name string, jsonName []byte, reader io.ReadCloser, wri
 	}
 }
 
-func doRedirectAndWait(ctx context.Context, pid int, wait func() (*os.ProcessState, errors.E), stage, name string, jsonName []byte, stdout, stderr *os.File) errors.E {
+func doRedirectAndWait(
+	ctx context.Context, pid int, wait func() (*os.ProcessState, errors.E), status *syscall.WaitStatus,
+	stage, name string, jsonName []byte, stdout, stderr *os.File,
+) errors.E {
 	// We do not care about context because we want logging redirects to operate
 	// as long as stdout and stderr are open. This could be longer than the process
 	// is running because they could be further inherited (or duplicated)
@@ -485,29 +493,32 @@ func doRedirectAndWait(ctx context.Context, pid int, wait func() (*os.ProcessSta
 		}
 	}
 
-	var status syscall.WaitStatus
 	state, err := wait()
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			// If we are here, process finished successfully but the context has been canceled so err was set, so we just ignore the err.
-			status = state.Sys().(syscall.WaitStatus) //nolint:errcheck
+			*status = state.Sys().(syscall.WaitStatus) //nolint:errcheck
 		} else if state != nil && !state.Success() {
 			// This is a condition in Wait when err is set when process fails, so we just ignore the err.
-			status = state.Sys().(syscall.WaitStatus) //nolint:errcheck
+			*status = state.Sys().(syscall.WaitStatus) //nolint:errcheck
 		} else {
 			err = errors.Errorf("%s/%s: error waiting for the process: %w", name, stage, err)
 			maybeSetExitCode(exitDinitFailure, err)
 			return err
 		}
 	} else {
-		status = state.Sys().(syscall.WaitStatus) //nolint:errcheck
+		*status = state.Sys().(syscall.WaitStatus) //nolint:errcheck
 	}
 
 	if status.Exited() {
-		if status.ExitStatus() != 0 {
-			maybeSetExitCode(exitServiceFailure, nil)
+		if status.ExitStatus() == serviceExitDisable {
+			logInfof("%s/%s: PID %d finished and disabled itself", name, stage, pid)
+		} else {
+			if status.ExitStatus() != 0 {
+				maybeSetExitCode(exitServiceFailure, nil)
+			}
+			logInfof("%s/%s: PID %d finished with status %d", name, stage, pid, status.ExitStatus())
 		}
-		logInfof("%s/%s: PID %d finished with status %d", name, stage, pid, status.ExitStatus())
 	} else {
 		// If process finished because of the signal but we have not been stopping it, we see it is as a process error.
 		if ctx.Err() == nil {
@@ -587,10 +598,11 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 
 	logInfof("%s/stop: running with PID %d", name, cmd.Process.Pid)
 
+	var status syscall.WaitStatus
 	return doRedirectAndWait(context.Background(), cmd.Process.Pid, func() (*os.ProcessState, errors.E) {
 		err := errors.WithStack(cmd.Wait())
 		return cmd.ProcessState, err
-	}, "stop", name, jsonName, stdout, stderr)
+	}, &status, "stop", name, jsonName, stdout, stderr)
 }
 
 func runService(ctx context.Context, g *errgroup.Group, name, p string) errors.E {
@@ -651,7 +663,13 @@ func runService(ctx context.Context, g *errgroup.Group, name, p string) errors.E
 
 	// When the service finishes (which is when this function returns)
 	// we finish all other services as well and exit the program.
-	defer MainCancel()
+	var status syscall.WaitStatus
+	defer func() {
+		// If exit status is anything other than serviceExitDisable (including just initialized WaitStatus), we call cancel.
+		if status.ExitStatus() != serviceExitDisable {
+			MainCancel()
+		}
+	}()
 
 	logInfof("%s/run: running with PID %d", name, cmd.Process.Pid)
 
@@ -674,7 +692,7 @@ func runService(ctx context.Context, g *errgroup.Group, name, p string) errors.E
 	})
 
 	// We pass stdout through the log program of the service, if one exists.
-	stdout, err = logService(ctx, g, name, jsonName, p, stdout)
+	stdout, err = logService(ctx, g, name, jsonName, p, stdout, done)
 	if err != nil {
 		if debugLog {
 			logErrorf("%s/log: error running: %+v", name, err)
@@ -690,7 +708,7 @@ func runService(ctx context.Context, g *errgroup.Group, name, p string) errors.E
 
 	err2 := doRedirectAndWait(ctx, cmd.Process.Pid, func() (*os.ProcessState, errors.E) {
 		return cmd.ProcessState, errors.WithStack(cmd.Wait())
-	}, "run", name, jsonName, stdout, stderr)
+	}, &status, "run", name, jsonName, stdout, stderr)
 
 	return errors.Join(err, err2)
 }
@@ -698,7 +716,7 @@ func runService(ctx context.Context, g *errgroup.Group, name, p string) errors.E
 // logService runs the log program if it exists and passes service's stdout to its stdin.
 // If starting the log program fails for any reason (except if the program does not exist),
 // logService returns nil for new stdout.
-func logService(ctx context.Context, g *errgroup.Group, name string, jsonName []byte, p string, serviceStdout *os.File) (*os.File, errors.E) {
+func logService(ctx context.Context, g *errgroup.Group, name string, jsonName []byte, p string, serviceStdout *os.File, done <-chan struct{}) (*os.File, errors.E) {
 	r := path.Join(p, "log", "run")
 
 	_, e := os.Stat(r)
@@ -766,14 +784,24 @@ func logService(ctx context.Context, g *errgroup.Group, name string, jsonName []
 		defer removeRunningChildPid(cmd.Process.Pid)
 
 		// When the log process finishes (which is when this goroutine returns)
-		// we finish all other services as well and exit the program.
-		defer MainCancel()
+		// we finish all other services as well and exit the program unless the
+		// main process has finished first. Then we leave to the main process
+		// to decide on that. This allows the main process to disable itself.
+		defer func() {
+			select {
+			case <-done:
+				return
+			default:
+				MainCancel()
+			}
+		}()
 
 		// We do not pass stdout here but return it so that it is redirected with the run stage.
+		var status syscall.WaitStatus
 		return doRedirectAndWait(ctx, cmd.Process.Pid, func() (*os.ProcessState, errors.E) {
 			err := errors.WithStack(cmd.Wait())
 			return cmd.ProcessState, err
-		}, "log", name, jsonName, nil, stderr)
+		}, &status, "log", name, jsonName, nil, stderr)
 	})
 
 	// We return stdout here so that it is redirected with the run stage.
@@ -1115,10 +1143,11 @@ func ReparentingAdopt(ctx context.Context, g *errgroup.Group, pid int, waiting c
 		close(waiting)
 	}
 
+	var status syscall.WaitStatus
 	return doRedirectAndWait(ctx, pid, func() (*os.ProcessState, errors.E) {
 		state, e := p.Wait()
 		return state, errors.WithStack(e)
-	}, stage, name, jsonName, stdout, stderr)
+	}, &status, stage, name, jsonName, stdout, stderr)
 }
 
 func reapZombie(p *os.Process, name, stage, cmdline string) errors.E {
