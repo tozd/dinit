@@ -7,14 +7,14 @@ Z dinit: info: service1/run: starting
 Z dinit: info: service2/run: PID X finished with signal 15
 Z dinit: info: service2/run: running with PID X
 Z dinit: info: service2/run: starting
-Z dinit: info: service2/run: stopping
-Z dinit: info: service2/stop: PID X finished with status 0
-Z dinit: info: service2/stop: running with PID X
+Z dinit: info: service2/run: terminating
+Z dinit: info: service2/term: PID X finished with status 0
+Z dinit: info: service2/term: running with PID X
 Z dinit: info: service3/run: PID X finished with signal 15
 Z dinit: info: service3/run: running with PID X
 Z dinit: info: service3/run: sending SIGTERM to PID X
 Z dinit: info: service3/run: starting
-Z dinit: info: service3/run: stopping
+Z dinit: info: service3/run: terminating
 Z dinit: info: service4/log: PID X finished with status 0
 Z dinit: info: service4/log: running with PID X
 Z dinit: info: service4/log: starting
@@ -22,7 +22,7 @@ Z dinit: info: service4/run: PID X finished with signal 15
 Z dinit: info: service4/run: running with PID X
 Z dinit: info: service4/run: sending SIGTERM to PID X
 Z dinit: info: service4/run: starting
-Z dinit: info: service4/run: stopping
+Z dinit: info: service4/run: terminating
 Z dinit: info: service5/log: PID X finished with status 0
 Z dinit: info: service5/log: running with PID X
 Z dinit: info: service5/log: starting
@@ -37,7 +37,7 @@ Z dinit: warning: bash/X: terminating reparented child process with PID X: bash 
 Z dinit: warning: sleep/X: terminating reparented child process with PID X
 Z dinit: warning: sleep/X: terminating reparented child process with PID X: sleep 3
 Z service1/run: test
-Z service2/stop: sending SIGTERM to PID X using stop file
+Z service2/term: sending SIGTERM to PID X using terminate file
 Z service4/log: invalid
 Z service4/log: logstderr
 Z service4/run: stderr

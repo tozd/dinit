@@ -1,0 +1,4 @@
+#!/bin/sh
+
+echo "sending SIGTERM to PID $DINIT_PID using terminate file" >&2
+kill -TERM "$DINIT_PID"

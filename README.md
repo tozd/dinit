@@ -40,7 +40,7 @@ Features:
     By default it terminates such processes (any daemonization is seen as configuration error)
     but it also supports adopting such processes. When dinit adopts a reparented process it
     redirects stdout and stderr of the process to dinit itself.
-  - Instead of default TERM signal one can provide a `stop` file to be run to terminate
+  - Instead of default TERM signal one can provide a `terminate` file to be run to terminate
     the main program (e.g., which can call `nginx -s quit`).
 - Managing processes' stdout and stderr:
   - It line-wise multiplexes stdout and stderr from programs into its own stdout and stderr
@@ -95,7 +95,7 @@ files for each program to run:
   If `run` file finishes with code 115 it signals that the program is disabling itself and that it does not
   have to run and the rest of the whole container is then not terminated as it would otherwise be when any
   of its programs finishes.
-- `/etc/service/<name>/stop`: When present, dinit does not send TERM signal to the process when it wants
+- `/etc/service/<name>/terminate`: When present, dinit does not send TERM signal to the process when it wants
   to terminate it, but runs this executable file. When this file is executed, it receives the PID of the
   corresponding terminating process through `DINIT_PID` environment variable.
   Remember, you do not have to KILL the process, just initiate termination.

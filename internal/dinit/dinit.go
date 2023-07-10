@@ -52,7 +52,7 @@ const defaultDir = "/etc/service"
 // between reparenting checks can be shorter.
 const reparentingInterval = time.Second
 
-// When dinit is stopping (the context is canceled) we increase the rate at which we
+// When dinit is terminating (the context is canceled) we increase the rate at which we
 // check for new reparented processes. By default docker stop waits for 10 seconds
 // before it kills processes if container does not exit, so we want to detect any
 // reparenting which might happen during shutdown and have time to send those processes
@@ -60,7 +60,7 @@ const reparentingInterval = time.Second
 // reparented processes trigger another wave. So keep this under one second or so.
 // This is also approximately the time reparenting function waits before returning
 // after there is no more known running children.
-const reparentingStoppingInterval = reparentingInterval / 10
+const reparentingTerminatingInterval = reparentingInterval / 10
 
 // How long to wait after SIGTERM to send SIGKILL to a reparented process?
 var reparentingKillTimeout = 30 * time.Second
@@ -205,7 +205,7 @@ func Main() {
 		}
 	}
 
-	go handleStopSignals()
+	go handleTerminateSignals()
 
 	g, ctx := errgroup.WithContext(MainContext)
 
@@ -278,15 +278,15 @@ func ConfigureLog(level string) {
 	}
 }
 
-func handleStopSignals() {
+func handleTerminateSignals() {
 	// We do not handle SIGQUIT because that is handled specially by Go runtime.
 	c := make(chan os.Signal, 2) //nolint:gomnd
 	signal.Notify(c, unix.SIGTERM, unix.SIGINT)
 	for s := range c {
 		if MainContext.Err() != nil {
-			logInfof("got signal %d, already stopping children", s)
+			logInfof("got signal %d, already terminating services", s)
 		} else {
-			logInfof("got signal %d, stopping children", s)
+			logInfof("got signal %d, terminating services", s)
 			// Even if children complain being terminated, we still exit with 0.
 			maybeSetExitCode(exitSuccess, nil)
 			MainCancel()
@@ -520,7 +520,7 @@ func doRedirectAndWait(
 			logInfof("%s/%s: PID %d finished with status %d", name, stage, pid, status.ExitStatus())
 		}
 	} else {
-		// If process finished because of the signal but we have not been stopping it, we see it is as a process error.
+		// If process finished because of the signal but we have not been terminating it, we see it is as a process error.
 		if ctx.Err() == nil {
 			maybeSetExitCode(exitServiceFailure, nil)
 		}
@@ -530,9 +530,9 @@ func doRedirectAndWait(
 	return nil
 }
 
-func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) errors.E {
-	logInfof("%s/run: stopping", name)
-	r := path.Join(p, "stop")
+func terminateService(runCmd *exec.Cmd, name string, jsonName []byte, p string) errors.E {
+	logInfof("%s/run: terminating", name)
+	r := path.Join(p, "terminate")
 	cmd := exec.Command(r)
 	cmd.Dir = p
 	cmd.Env = append(os.Environ(), fmt.Sprintf("DINIT_PID=%d", runCmd.Process.Pid))
@@ -575,7 +575,7 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 		stdout.Close()
 		stderr.Close()
 
-		// If stop program does not exist, we send SIGTERM instead.
+		// If terminate program does not exist, we send SIGTERM instead.
 		if errors.Is(err, os.ErrNotExist) {
 			logInfof("%s/run: sending SIGTERM to PID %d", name, runCmd.Process.Pid)
 
@@ -596,13 +596,13 @@ func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) error
 		return err
 	}
 
-	logInfof("%s/stop: running with PID %d", name, cmd.Process.Pid)
+	logInfof("%s/term: running with PID %d", name, cmd.Process.Pid)
 
 	var status syscall.WaitStatus
 	return doRedirectAndWait(context.Background(), cmd.Process.Pid, func() (*os.ProcessState, errors.E) {
 		err := errors.WithStack(cmd.Wait())
 		return cmd.ProcessState, err
-	}, &status, "stop", name, jsonName, stdout, stderr)
+	}, &status, "term", name, jsonName, stdout, stderr)
 }
 
 func runService(ctx context.Context, g *errgroup.Group, name, p string) errors.E {
@@ -676,14 +676,14 @@ func runService(ctx context.Context, g *errgroup.Group, name, p string) errors.E
 	done := make(chan struct{})
 	defer close(done)
 
-	// We stop the process if context is canceled.
+	// We terminate the process if context is canceled.
 	knownRunningChildren.Add(1)
 	g.Go(func() error {
 		defer knownRunningChildren.Add(-1)
 
 		select {
 		case <-ctx.Done():
-			return stopService(cmd, name, jsonName, p) //nolint:contextcheck
+			return terminateService(cmd, name, jsonName, p) //nolint:contextcheck
 		case <-done:
 			// The process finished or there was an error waiting for it.
 			// In any case we do not have anything to do anymore.
@@ -701,7 +701,7 @@ func runService(ctx context.Context, g *errgroup.Group, name, p string) errors.E
 		}
 		// We already logged the error, so we pass nil here.
 		maybeSetExitCode(exitDinitFailure, nil)
-		// Let's stop everything. We do not return here but continue to wait for the service
+		// Let's terminate everything. We do not return here but continue to wait for the service
 		// itself to finish, which should finish after we called MainCancel anyway.
 		MainCancel()
 	}
@@ -893,7 +893,7 @@ func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) erro
 			// Disable this select case.
 			ctxDone = nil
 			// Increase the rate at which we are checking for new reparented processes.
-			ticker.Reset(reparentingStoppingInterval)
+			ticker.Reset(reparentingTerminatingInterval)
 			continue
 		case <-sigchild:
 		case <-ticker.C:
@@ -1114,11 +1114,11 @@ func ReparentingAdopt(ctx context.Context, g *errgroup.Group, pid int, waiting c
 	done := make(chan struct{})
 	defer close(done)
 
-	// We stop the process if context is canceled.
+	// We terminate the process if context is canceled.
 	g.Go(func() error {
 		select {
 		case <-ctx.Done():
-			logInfof("%s/%s: stopping", name, stage)
+			logInfof("%s/%s: terminating", name, stage)
 			logInfof("%s/%s: sending SIGTERM to PID %d", name, stage, pid)
 
 			e := p.Signal(unix.SIGTERM)
