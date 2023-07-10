@@ -152,7 +152,7 @@ func TestReparentingAdoptCancel(t *testing.T) {
 
 	assertLogs(t, []string{
 		`.+Z dinit: warning: sleep/\d+: adopting reparented child process with PID \d+(: /bin/sleep infinity)?`,
-		`.+Z dinit: info: sleep/\d+: finishing`,
+		`.+Z dinit: info: sleep/\d+: stopping`,
 		`.+Z dinit: info: sleep/\d+: sending SIGTERM to PID \d+`,
 		`.+Z dinit: info: sleep/\d+: PID \d+ finished with signal 15`,
 	}, l)
@@ -345,7 +345,7 @@ func TestRunServices(t *testing.T) {
 			require.NoError(t, e)
 			e = os.WriteFile(path.Join(dir, "service2", "run"), []byte("#!/bin/sh\necho start\n>&2 echo starterr\nexec sleep infinity"), 0o755) //nolint:gosec
 			require.NoError(t, e)
-			e = os.WriteFile(path.Join(dir, "service2", "finish"), []byte("#!/bin/sh\necho end\n>&2 echo enderr\nkill -TERM $DINIT_PID"), 0o755) //nolint:gosec
+			e = os.WriteFile(path.Join(dir, "service2", "stop"), []byte("#!/bin/sh\necho end\n>&2 echo enderr\nkill -TERM $DINIT_PID"), 0o755) //nolint:gosec
 			require.NoError(t, e)
 			e = os.Mkdir(path.Join(dir, "service3"), 0o755)
 			require.NoError(t, e)
@@ -379,14 +379,14 @@ func TestRunServices(t *testing.T) {
 		`.+Z service3/run: starterr`,
 		`.+Z service3/log: logerr`,
 		`.+Z dinit: info: service1/run: PID \d+ finished with status 0`,
-		`.+Z dinit: info: service2/run: finishing`,
-		`.+Z dinit: info: service3/run: finishing`,
+		`.+Z dinit: info: service2/run: stopping`,
+		`.+Z dinit: info: service3/run: stopping`,
 		`.+Z dinit: info: service3/run: sending SIGTERM to PID \d+`,
 		`.+Z dinit: info: service3/run: PID \d+ finished with signal 15`,
 		`.+Z dinit: info: service3/log: PID \d+ finished with status 0`,
-		`.+Z dinit: info: service2/finish: running with PID \d+`,
-		`.+Z service2/finish: enderr`,
-		`.+Z dinit: info: service2/finish: PID \d+ finished with status 0`,
+		`.+Z dinit: info: service2/stop: running with PID \d+`,
+		`.+Z service2/stop: enderr`,
+		`.+Z dinit: info: service2/stop: PID \d+ finished with status 0`,
 		`.+Z dinit: info: service2/run: PID \d+ finished with signal 15`,
 	}, stderr)
 	assertLogs(t, []string{
@@ -394,6 +394,6 @@ func TestRunServices(t *testing.T) {
 		`.+Z service2/run: start`,
 		`.+Z service3/run: log`,
 		`.+Z service3/run: start`,
-		`.+Z service2/finish: end`,
+		`.+Z service2/stop: end`,
 	}, stdout)
 }

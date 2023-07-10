@@ -519,9 +519,9 @@ func doRedirectAndWait(ctx context.Context, pid int, wait func() (*os.ProcessSta
 	return nil
 }
 
-func finishService(runCmd *exec.Cmd, name string, jsonName []byte, p string) errors.E {
-	logInfof("%s/run: finishing", name)
-	r := path.Join(p, "finish")
+func stopService(runCmd *exec.Cmd, name string, jsonName []byte, p string) errors.E {
+	logInfof("%s/run: stopping", name)
+	r := path.Join(p, "stop")
 	cmd := exec.Command(r)
 	cmd.Dir = p
 	cmd.Env = append(os.Environ(), fmt.Sprintf("DINIT_PID=%d", runCmd.Process.Pid))
@@ -564,7 +564,7 @@ func finishService(runCmd *exec.Cmd, name string, jsonName []byte, p string) err
 		stdout.Close()
 		stderr.Close()
 
-		// If finish program does not exist, we send SIGTERM instead.
+		// If stop program does not exist, we send SIGTERM instead.
 		if errors.Is(err, os.ErrNotExist) {
 			logInfof("%s/run: sending SIGTERM to PID %d", name, runCmd.Process.Pid)
 
@@ -585,12 +585,12 @@ func finishService(runCmd *exec.Cmd, name string, jsonName []byte, p string) err
 		return err
 	}
 
-	logInfof("%s/finish: running with PID %d", name, cmd.Process.Pid)
+	logInfof("%s/stop: running with PID %d", name, cmd.Process.Pid)
 
 	return doRedirectAndWait(context.Background(), cmd.Process.Pid, func() (*os.ProcessState, errors.E) {
 		err := errors.WithStack(cmd.Wait())
 		return cmd.ProcessState, err
-	}, "finish", name, jsonName, stdout, stderr)
+	}, "stop", name, jsonName, stdout, stderr)
 }
 
 func runService(ctx context.Context, g *errgroup.Group, name, p string) errors.E {
@@ -665,7 +665,7 @@ func runService(ctx context.Context, g *errgroup.Group, name, p string) errors.E
 
 		select {
 		case <-ctx.Done():
-			return finishService(cmd, name, jsonName, p) //nolint:contextcheck
+			return stopService(cmd, name, jsonName, p) //nolint:contextcheck
 		case <-done:
 			// The process finished or there was an error waiting for it.
 			// In any case we do not have anything to do anymore.
@@ -1090,7 +1090,7 @@ func ReparentingAdopt(ctx context.Context, g *errgroup.Group, pid int, waiting c
 	g.Go(func() error {
 		select {
 		case <-ctx.Done():
-			logInfof("%s/%s: finishing", name, stage)
+			logInfof("%s/%s: stopping", name, stage)
 			logInfof("%s/%s: sending SIGTERM to PID %d", name, stage, pid)
 
 			e := p.Signal(unix.SIGTERM)

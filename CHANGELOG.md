@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Change name to `stop` file instead of `finish` file to avoid confusion.
+  `finish` file is used differently in runit.
+
 ## [0.1.0] - 2023-07-09
 
 ### Added
