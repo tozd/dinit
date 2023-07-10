@@ -658,7 +658,7 @@ func runService(ctx context.Context, g *errgroup.Group, name, p string) errors.E
 	done := make(chan struct{})
 	defer close(done)
 
-	// We cancel the process if context is canceled.
+	// We stop the process if context is canceled.
 	knownRunningChildren.Add(1)
 	g.Go(func() error {
 		defer knownRunningChildren.Add(-1)
@@ -1039,8 +1039,8 @@ func ReparentingAdopt(ctx context.Context, g *errgroup.Group, pid int, waiting c
 		return err
 	}
 
-	// When adopting, then when the process stops (which is when this function returns)
-	// we stop all other services and exit the program.
+	// When adopting, then when the process finishes (which is when this function returns)
+	// we finish all other services as well and exit the program.
 	defer MainCancel()
 
 	p, _ := os.FindProcess(pid) // This call cannot fail.
@@ -1086,7 +1086,7 @@ func ReparentingAdopt(ctx context.Context, g *errgroup.Group, pid int, waiting c
 	done := make(chan struct{})
 	defer close(done)
 
-	// We cancel the process if context is canceled.
+	// We stop the process if context is canceled.
 	g.Go(func() error {
 		select {
 		case <-ctx.Done():
