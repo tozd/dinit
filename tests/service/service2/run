@@ -4,4 +4,4 @@ echo '{"so": "me"}'
 
 (bash -c "sleep 3; echo x y z" &)
 
-sleep infinity
+exec sleep infinity
