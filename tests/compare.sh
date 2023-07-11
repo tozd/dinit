@@ -29,7 +29,7 @@ for file in *.log; do
   done
   if [ "$match" = 0 ]; then
     echo "$file: ERROR"
-    cp "$file" "tests/results/$file.$(date --iso-8601=ns)"
+    cp "$file" "tests/results/$file.$(date +%Y-%m-%dT%H:%M:%S)"
     ret=1
   else
     echo "$file: OK"
