@@ -161,6 +161,15 @@ but writing outside of volumes in Docker containers is discouraged. Second, wait
 not necessarily mean that another program is also ready. This means that often it is better to have a
 program-specific way to test if another program is ready which can be done inside the `run` file.
 
+## Are there any examples of real service files?
+
+Many [tozd Docker images](https://gitlab.com/tozd/docker) use dinit any you can check files there, e.g.,
+[nginx](https://gitlab.com/tozd/docker/nginx/-/blob/master/etc/service/nginx/run) and its
+[terminate](https://gitlab.com/tozd/docker/nginx/-/blob/master/etc/service/nginx/terminate),
+[mongodb](https://gitlab.com/tozd/docker/mongodb/-/blob/master/etc/service/mongod/run) and its
+[log](https://gitlab.com/tozd/docker/mongodb/-/blob/master/log/run) (or an
+[older one](https://gitlab.com/tozd/docker/mongodb/-/blob/master/log-3.0/run) which converts logs to JSON).
+
 ## Related projects
 
 - [runit](http://smarden.org/runit/index.html) – Awesome init system which looks like it is suitable for use inside
