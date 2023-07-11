@@ -103,9 +103,9 @@ files for each program to run:
 - `/etc/service/<name>/log/run`: Optional executable file for a logging program. Stdout of the main program
   (i.e., from `/etc/service/<name>/run`) is piped to stdin of this program which can then process it.
   It can be use to redirect stdout to a file or elsewhere, or to convert non-JSON stdout to JSON
-  (e.g., using [regex2json](https://gitlab.com/tozd/regex2json) tool). Any stdout and stderr output
-  from the logging program is then used by dinit as stdout and stderr output of the main program.
-  Stderr output of the main program is still used by dinit as well.
+  (e.g., using [regex2json](https://gitlab.com/tozd/regex2json) tool). Stdout output
+  from the logging program is then used by dinit as stdout of the main program.
+  Stderr outputs of the main and logging programs are used by dinit normally as well.
 
 dinit expects programs to not daemonize but to stay running with dinit as their parent process.
 If any program does daemonize, the default `terminate` reparenting policy will simply terminate them.
