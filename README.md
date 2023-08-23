@@ -181,7 +181,7 @@ Many [tozd Docker images](https://gitlab.com/tozd/docker) use dinit any you can 
   Docker containers. It suggests that one should run both `runit` and `runsvdir` and not just `runsvdir` inside
   Docker containers and suggests to write your own `/etc/service/ctrlaltdel` to cleanup processes. dinit just does
   the right thing and does not require you to write custom cleanup scripts.
-- [ramr/go-reaper](https://github.com/ramr/go-reaper) – Recognizes the same issue of zombie processes in Docker
+- [github.com/ramr/go-reaper](https://github.com/ramr/go-reaper) – Recognizes the same issue of zombie processes in Docker
   containers when Go programs are used as the init process (PID 1) inside Docker containers and provides a library
   for Go programs to reap them. dinit supports also non-Go programs.
 - [dumb-init](https://github.com/Yelp/dumb-init) – Init to run a program which is not expecting to be the init process.
