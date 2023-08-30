@@ -4,7 +4,7 @@ go 1.20
 
 require (
 	gitlab.com/tozd/go/errors v0.5.0
-	gitlab.com/tozd/go/pcontrol v0.0.0-20230619223829-fb29b1c081eb
+	gitlab.com/tozd/go/pcontrol v0.2.0
 	golang.org/x/sync v0.2.0
 	golang.org/x/sys v0.9.0
 )
