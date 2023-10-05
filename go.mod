@@ -1,10 +1,10 @@
 module gitlab.com/tozd/dinit
 
-go 1.20
+go 1.21
 
 require (
-	gitlab.com/tozd/go/errors v0.5.0
-	gitlab.com/tozd/go/pcontrol v0.2.0
+	gitlab.com/tozd/go/errors v0.7.2
+	gitlab.com/tozd/go/pcontrol v0.3.0
 	golang.org/x/sync v0.2.0
 	golang.org/x/sys v0.9.0
 )
