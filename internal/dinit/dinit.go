@@ -161,12 +161,11 @@ func maybeSetExitCode(code int, err errors.E) {
 		exitCode = &code
 	}
 	if debugLog && code == exitDinitFailure {
-		buf := &strings.Builder{}
-		_, _ = errors.StackFormat(buf, "%+v", callers())
+		st := fmt.Sprintf("%+v", errors.StackFormatter{Stack: callers()})
 		if err != nil {
-			logDebugf("setting exit code to %d at (most recent call first):\n%s\ncaused by the error:\n\n%+v", code, buf.String(), err)
+			logDebugf("setting exit code to %d at (most recent call first):\n%s\ncaused by the following error:\n\n% -+#.1v", code, st, err)
 		} else {
-			logDebugf("setting exit code to %d at (most recent call first):\n%s", code, buf.String())
+			logDebugf("setting exit code to %d at (most recent call first):\n%s", code, st)
 		}
 	}
 }
@@ -240,7 +239,7 @@ func Main() {
 	if err != nil && !errors.Is(err, context.Canceled) {
 		maybeSetExitCode(exitDinitFailure, nil)
 		if debugLog {
-			logErrorf("exiting: %+v", err)
+			logErrorf("exiting: % -+#.1v", err)
 		} else {
 			logErrorf("exiting: %s", err)
 		}
@@ -408,7 +407,7 @@ func RedirectToLogWithPrefix(l *log.Logger, stage, name, input string, reader io
 	// Reader can get closed and we ignore that.
 	if e != nil && !errors.Is(e, os.ErrClosed) {
 		if debugLog {
-			logWarnf("%s/%s: error reading %s: %+v", name, stage, input, e)
+			logWarnf("%s/%s: error reading %s: % -+#.1v", name, stage, input, e)
 		} else {
 			logWarnf("%s/%s: error reading %s: %s", name, stage, input, e)
 		}
@@ -451,7 +450,7 @@ func RedirectJSON(stage, name string, jsonName []byte, reader io.ReadCloser, wri
 				_, e := writer.Write(buffer.Bytes())
 				if e != nil {
 					if debugLog {
-						logWarnf("%s/%s: error writing stdout: %+v", name, stage, e)
+						logWarnf("%s/%s: error writing stdout: % -+#.1v", name, stage, e)
 					} else {
 						logWarnf("%s/%s: error writing stdout: %s", name, stage, e)
 					}
@@ -466,7 +465,7 @@ func RedirectJSON(stage, name string, jsonName []byte, reader io.ReadCloser, wri
 	// Reader can get closed and we ignore that.
 	if e != nil && !errors.Is(e, os.ErrClosed) {
 		if debugLog {
-			logWarnf("%s/%s: error reading stdout: %+v", name, stage, e)
+			logWarnf("%s/%s: error reading stdout: % -+#.1v", name, stage, e)
 		} else {
 			logWarnf("%s/%s: error reading stdout: %s", name, stage, e)
 		}
@@ -502,7 +501,7 @@ func doRedirectAndWait(
 			// This is a condition in Wait when err is set when process fails, so we just ignore the err.
 			*status = state.Sys().(syscall.WaitStatus) //nolint:errcheck
 		} else {
-			err = errors.Errorf("%s/%s: error waiting for the process: %w", name, stage, err)
+			err = errors.WithMessagef(err, "%s/%s: error waiting for the process", name, stage)
 			maybeSetExitCode(exitDinitFailure, err)
 			return err
 		}
@@ -695,7 +694,7 @@ func runService(ctx context.Context, g *errgroup.Group, name, p string) errors.E
 	stdout, err = logService(ctx, g, name, jsonName, p, stdout, done)
 	if err != nil {
 		if debugLog {
-			logErrorf("%s/log: error running: %+v", name, err)
+			logErrorf("%s/log: error running: % -+#.1v", name, err)
 		} else {
 			logErrorf("%s/log: error running: %s", name, err)
 		}
@@ -904,17 +903,19 @@ func reparenting(ctx context.Context, g *errgroup.Group, policy policyFunc) erro
 			if processNotExist(e) {
 				continue
 			}
-			err := errors.Errorf("unable to read process children from %s: %w", childrenPath, e)
-			maybeSetExitCode(exitDinitFailure, err)
-			return err
+			errE := errors.WithMessage(e, "unable to read process children from")
+			errors.Details(errE)["path"] = childrenPath
+			maybeSetExitCode(exitDinitFailure, errE)
+			return errE
 		}
 		childrenPids := strings.Fields(string(childrenData))
 		for _, childPid := range childrenPids {
 			p, e := strconv.Atoi(childPid)
 			if e != nil {
-				err := errors.Errorf("failed to parse PID %s: %w", childPid, e)
-				maybeSetExitCode(exitDinitFailure, err)
-				return err
+				errE := errors.WithMessage(e, "failed to parse PID")
+				errors.Details(errE)["pid"] = childPid
+				maybeSetExitCode(exitDinitFailure, errE)
+				return errE
 			}
 			if !hasRunningChildPid(p) {
 				// If this is not our own child we call configured policy.
@@ -963,7 +964,10 @@ func getProcessStatus(pid int) (string, []string, errors.E) {
 	}
 	match := procStatRegexp.FindSubmatch(statData)
 	if len(match) != 3 { //nolint:gomnd
-		return "", nil, errors.Errorf("could not match process status in %s: %s", statPath, statData)
+		errE := errors.New("could not match process status")
+		errors.Details(errE)["path"] = statPath
+		errors.Details(errE)["data"] = statData
+		return "", nil, errE
 	}
 	return string(match[1]), strings.Fields(string(match[2])), nil
 }
@@ -986,9 +990,12 @@ func ProcessAge(pid int) (time.Duration, errors.E) {
 	if err != nil {
 		return 0, err
 	}
-	startTime, e := strconv.ParseUint(info[procStatStartTime-procStatOffset], 10, 64)
+	startTimeString := info[procStatStartTime-procStatOffset]
+	startTime, e := strconv.ParseUint(startTimeString, 10, 64)
 	if e != nil {
-		return 0, errors.Errorf("failed to parse process start time %s: %w", info[procStatStartTime-procStatOffset], e)
+		errE := errors.WithMessage(e, "failed to parse process start time")
+		errors.Details(errE)["value"] = startTimeString
+		return 0, errE
 	}
 	// We first compute time.Second / _SC_CLK_TCK to not lose precision.
 	startTimeSinceBoot := time.Duration(startTime * (uint64(time.Second) / uint64(_SC_CLK_TCK)))
@@ -997,9 +1004,12 @@ func ProcessAge(pid int) (time.Duration, errors.E) {
 	if e != nil {
 		return 0, errors.WithStack(e)
 	}
-	uptime, e := strconv.ParseFloat(strings.Fields(string(uptimeData))[0], 64)
+	uptimeString := strings.Fields(string(uptimeData))[0]
+	uptime, e := strconv.ParseFloat(uptimeString, 64)
 	if e != nil {
-		return 0, errors.Errorf("failed to parse uptime %s: %w", strings.Fields(string(uptimeData))[0], e)
+		errE := errors.WithMessage(e, "failed to parse uptime")
+		errors.Details(errE)["value"] = uptimeString
+		return 0, errE
 	}
 
 	return time.Duration(uptime*float64(time.Second)) - startTimeSinceBoot, nil
@@ -1105,7 +1115,7 @@ func ReparentingAdopt(ctx context.Context, g *errgroup.Group, pid int, waiting c
 	stdout, stderr, err := pcontrol.RedirectAllStdoutStderr(debugLog, logWarnf, pid)
 	if err != nil {
 		if debugLog {
-			logWarnf("%s/%s: error redirecting stdout and stderr: %+v", name, stage, err)
+			logWarnf("%s/%s: error redirecting stdout and stderr: % -+#.1v", name, stage, err)
 		} else {
 			logWarnf("%s/%s: error redirecting stdout and stderr: %s", name, stage, err)
 		}
@@ -1163,7 +1173,7 @@ func reapZombie(p *os.Process, name, stage, cmdline string) errors.E {
 func doWait(p *os.Process, name, stage string) errors.E {
 	state, e := p.Wait()
 	if e != nil {
-		err := errors.Errorf("%s/%s: error waiting for the process: %w", name, stage, e)
+		err := errors.WithMessagef(e, "%s/%s: error waiting for the process", name, stage)
 		maybeSetExitCode(exitDinitFailure, err)
 		return err
 	}

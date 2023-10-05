@@ -153,7 +153,9 @@ func replaceFdForProcess(debugLog bool, logWarnf func(msg string, args ...any), 
 	for _, entry := range entries {
 		fd, e := strconv.Atoi(entry.Name())
 		if e != nil {
-			return errors.Errorf("failed to parse fd %s: %w", entry.Name(), e)
+			errE := errors.WithMessage(e, "failed to parse fd")
+			errors.Details(errE)["fd"] = entry.Name()
+			return errE
 		}
 		fds = append(fds, fd)
 	}
@@ -171,7 +173,7 @@ func replaceFdForProcess(debugLog bool, logWarnf func(msg string, args ...any), 
 func ReplaceFdForProcessAndChildren(debugLog bool, logWarnf func(msg string, args ...any), pid int, name string, from, to *os.File) errors.E {
 	eq, err := pcontrol.EqualFds(int(from.Fd()), int(to.Fd()))
 	if err != nil {
-		return errors.Errorf("unable to compare file descriptors: %w", err)
+		return errors.WithMessage(err, "unable to compare file descriptors")
 	}
 	if eq {
 		// Nothing to replace.
@@ -181,7 +183,7 @@ func ReplaceFdForProcessAndChildren(debugLog bool, logWarnf func(msg string, arg
 	err = replaceFdForProcess(debugLog, logWarnf, pid, from, to)
 	if err != nil {
 		if debugLog {
-			logWarnf("error replacing %s fd for process with PID %d: %+v", name, pid, err)
+			logWarnf("error replacing %s fd for process with PID %d: % -+#.1v", name, pid, err)
 		} else {
 			logWarnf("error replacing %s fd for process with PID %d: %s", name, pid, err)
 		}
@@ -193,7 +195,9 @@ func ReplaceFdForProcessAndChildren(debugLog bool, logWarnf func(msg string, arg
 		if errors.Is(e, os.ErrNotExist) {
 			return nil
 		}
-		return errors.Errorf("unable to read process tasks from %s: %w", taskPath, e)
+		errE := errors.WithMessage(e, "unable to read process tasks")
+		errors.Details(errE)["path"] = taskPath
+		return errE
 	}
 
 	for _, entry := range entries {
@@ -203,13 +207,17 @@ func ReplaceFdForProcessAndChildren(debugLog bool, logWarnf func(msg string, arg
 			if errors.Is(e, os.ErrNotExist) {
 				continue
 			}
-			return errors.Errorf("unable to read process children from %s: %w", childrenPath, e)
+			errE := errors.WithMessage(e, "unable to read process children")
+			errors.Details(errE)["path"] = childrenPath
+			return errE
 		}
 		childrenPids := strings.Fields(string(childrenData))
 		for _, childPid := range childrenPids {
 			p, e := strconv.Atoi(childPid)
 			if e != nil {
-				return errors.Errorf("failed to parse PID %s: %w", childPid, e)
+				errE := errors.WithMessage(e, "failed to parse PID")
+				errors.Details(errE)["pid"] = childPid
+				return errE
 			}
 			err := ReplaceFdForProcessAndChildren(debugLog, logWarnf, p, name, from, to)
 			if err != nil {
