@@ -17,10 +17,13 @@ import (
 // this process and returns them. Make sure to close them once you do not need them anymore.
 //
 //nolint:nakedret
-func RedirectStdoutStderr(_ bool, logWarnf func(msg string, args ...any), pid int, stdoutWriter, stderrWriter *os.File) (stdout, stderr *os.File, err errors.E) {
+func RedirectStdoutStderr( //nolint:nonamedreturns
+	_ bool, logWarnf func(msg string, args ...any), pid int, stdoutWriter, stderrWriter *os.File,
+) (stdout, stderr *os.File, err errors.E) {
 	p := pcontrol.Process{
-		Pid:      pid,
-		LogWarnf: logWarnf,
+		Pid:        pid,
+		MemorySize: pcontrol.DefaultMemorySize,
+		LogWarnf:   logWarnf,
 	}
 
 	err = p.Attach()
@@ -82,10 +85,11 @@ func RedirectStdoutStderr(_ bool, logWarnf func(msg string, args ...any), pid in
 // instead of the corresponding traceeFd.
 //
 //nolint:nakedret
-func replaceFdForProcessFds(_ bool, logWarnf func(msg string, args ...any), pid int, traceeFds []int, from, to *os.File) (err errors.E) {
+func replaceFdForProcessFds(_ bool, logWarnf func(msg string, args ...any), pid int, traceeFds []int, from, to *os.File) (err errors.E) { //nolint:nonamedreturns
 	p := pcontrol.Process{
-		Pid:      pid,
-		LogWarnf: logWarnf,
+		Pid:        pid,
+		MemorySize: pcontrol.DefaultMemorySize,
+		LogWarnf:   logWarnf,
 	}
 
 	err = p.Attach()
@@ -234,7 +238,7 @@ func ReplaceFdForProcessAndChildren(debugLog bool, logWarnf func(msg string, arg
 // file descriptors matching those initial stdout and stderr with redirects as well.
 //
 //nolint:nakedret
-func RedirectAllStdoutStderr(debugLog bool, logWarnf func(msg string, args ...any), pid int) (stdout, stderr *os.File, err errors.E) {
+func RedirectAllStdoutStderr(debugLog bool, logWarnf func(msg string, args ...any), pid int) (stdout, stderr *os.File, err errors.E) { //nolint:nonamedreturns
 	defer func() {
 		if err != nil {
 			if stdout != nil {

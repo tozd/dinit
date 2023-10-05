@@ -25,6 +25,7 @@ import (
 
 func withLogger(t *testing.T, l *log.Logger, f func()) string {
 	t.Helper()
+
 	reader, writer, err := os.Pipe()
 	defer reader.Close() //nolint:staticcheck
 	// We might double close writer here, but that is OK and we ignore any error.
@@ -50,7 +51,7 @@ func withLogger(t *testing.T, l *log.Logger, f func()) string {
 	return string(data)
 }
 
-func assertLogs(t *testing.T, expected []string, actual string, msgAndArgs ...interface{}) {
+func assertLogs(t *testing.T, expected []string, actual string, msgAndArgs ...interface{}) { //nolint:unparam
 	t.Helper()
 
 	lines := strings.Split(actual, "\n")
@@ -85,6 +86,8 @@ func assertLogs(t *testing.T, expected []string, actual string, msgAndArgs ...in
 }
 
 func TestReparentingTerminate(t *testing.T) {
+	t.Parallel()
+
 	dinit.MainContext, dinit.MainCancel = context.WithCancel(context.Background())
 
 	l := withLogger(t, log.Default(), func() {
@@ -118,6 +121,8 @@ func TestReparentingTerminate(t *testing.T) {
 }
 
 func TestReparentingAdoptCancel(t *testing.T) {
+	t.Parallel()
+
 	dinit.MainContext, dinit.MainCancel = context.WithCancel(context.Background())
 
 	l := withLogger(t, log.Default(), func() {
@@ -159,6 +164,8 @@ func TestReparentingAdoptCancel(t *testing.T) {
 }
 
 func TestReparentingAdoptFinish(t *testing.T) {
+	t.Parallel()
+
 	dinit.MainContext, dinit.MainCancel = context.WithCancel(context.Background())
 
 	l := withLogger(t, log.Default(), func() {
@@ -205,6 +212,8 @@ func TestReparentingAdoptFinish(t *testing.T) {
 }
 
 func TestGetProcessInfo(t *testing.T) {
+	t.Parallel()
+
 	for _, tt := range []struct {
 		Cmd     []string
 		Cmdline string
@@ -214,7 +223,11 @@ func TestGetProcessInfo(t *testing.T) {
 		{[]string{"/bin/true"}, "", "true"},
 		{[]string{"/bin/sleep", "infinity"}, "/bin/sleep infinity", "sleep"},
 	} {
+		tt := tt
+
 		t.Run(strings.Join(tt.Cmd, " "), func(t *testing.T) {
+			t.Parallel()
+
 			cmd := exec.Command(tt.Cmd[0], tt.Cmd[1:]...) //nolint:gosec
 			e := cmd.Start()
 			require.NoError(t, e)
@@ -236,6 +249,8 @@ func TestGetProcessInfo(t *testing.T) {
 }
 
 func TestIsZombie(t *testing.T) {
+	t.Parallel()
+
 	for _, tt := range []struct {
 		Cmd    []string
 		Zombie bool
@@ -244,7 +259,11 @@ func TestIsZombie(t *testing.T) {
 		{[]string{"/bin/true"}, true},
 		{[]string{"/bin/sleep", "infinity"}, false},
 	} {
+		tt := tt
+
 		t.Run(strings.Join(tt.Cmd, " "), func(t *testing.T) {
+			t.Parallel()
+
 			cmd := exec.Command(tt.Cmd[0], tt.Cmd[1:]...) //nolint:gosec
 			e := cmd.Start()
 			require.NoError(t, e)
@@ -264,6 +283,8 @@ func TestIsZombie(t *testing.T) {
 }
 
 func TestProcessAge(t *testing.T) {
+	t.Parallel()
+
 	cmd := exec.Command("/bin/sleep", "infinity")
 	e := cmd.Start()
 	require.NoError(t, e)
@@ -281,6 +302,8 @@ func TestProcessAge(t *testing.T) {
 }
 
 func TestRedirectJSON(t *testing.T) {
+	t.Parallel()
+
 	l := withLogger(t, log.Default(), func() {
 		var in bytes.Buffer
 		var out bytes.Buffer
@@ -303,6 +326,8 @@ func TestRedirectJSON(t *testing.T) {
 }
 
 func TestRedirectToLogWithPrefix(t *testing.T) {
+	t.Parallel()
+
 	l := withLogger(t, log.Default(), func() {
 		var in bytes.Buffer
 		var out bytes.Buffer
@@ -316,6 +341,8 @@ func TestRedirectToLogWithPrefix(t *testing.T) {
 }
 
 func TestRunNoServices(t *testing.T) {
+	t.Parallel()
+
 	dinit.MainContext, dinit.MainCancel = context.WithCancel(context.Background())
 
 	l := withLogger(t, log.Default(), func() {
@@ -329,7 +356,7 @@ func TestRunNoServices(t *testing.T) {
 	assert.Regexp(t, `.+Z dinit: warning: no services found, exiting\n`, l)
 }
 
-func TestRunServices(t *testing.T) {
+func TestRunServices(t *testing.T) { //nolint:paralleltest
 	t.Setenv("DINIT_JSON_STDOUT", "0")
 	dinit.MainContext, dinit.MainCancel = context.WithCancel(context.Background())
 

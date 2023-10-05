@@ -63,7 +63,7 @@ const reparentingInterval = time.Second
 const reparentingTerminatingInterval = reparentingInterval / 10
 
 // How long to wait after SIGTERM to send SIGKILL to a reparented process?
-var reparentingKillTimeout = 30 * time.Second
+var reparentingKillTimeout = 30 * time.Second //nolint:gochecknoglobals
 
 const RFC3339Milli = "2006-01-02T15:04:05.000Z07:00"
 
@@ -87,7 +87,7 @@ const (
 
 var procStatRegexp = regexp.MustCompile(`\((.*)\) (.+)`)
 
-var _SC_CLK_TCK = getClockTicks() //nolint:revive,stylecheck
+var _SC_CLK_TCK = getClockTicks() //nolint:revive,stylecheck,gochecknoglobals
 
 const matureProcessAge = 10 * time.Millisecond
 
@@ -96,41 +96,41 @@ const logFlags = 0
 
 type policyFunc = func(ctx context.Context, g *errgroup.Group, pid int, waiting chan<- struct{}) errors.E
 
-var debugLog = false
+var debugLog = false //nolint:gochecknoglobals
 
 func timestamp() string {
 	return time.Now().UTC().Format(RFC3339Milli)
 }
 
-var logDebug = func(msg any) { //nolint:unused
+var logDebug = func(msg any) { //nolint:unused,gochecknoglobals
 	log.Printf(timestamp()+" dinit: debug: %s", msg)
 }
 
-var logDebugf = func(msg string, args ...any) {
+var logDebugf = func(msg string, args ...any) { //nolint:gochecknoglobals
 	log.Printf(timestamp()+" dinit: debug: "+msg, args...)
 }
 
-var logInfo = func(msg any) { //nolint:unused
+var logInfo = func(msg any) { //nolint:unused,gochecknoglobals
 	log.Printf(timestamp()+" dinit: info: %s", msg)
 }
 
-var logInfof = func(msg string, args ...any) {
+var logInfof = func(msg string, args ...any) { //nolint:gochecknoglobals
 	log.Printf(timestamp()+" dinit: info: "+msg, args...)
 }
 
-var logWarn = func(msg any) {
+var logWarn = func(msg any) { //nolint:gochecknoglobals
 	log.Printf(timestamp()+" dinit: warning: %s", msg)
 }
 
-var logWarnf = func(msg string, args ...any) {
+var logWarnf = func(msg string, args ...any) { //nolint:gochecknoglobals
 	log.Printf(timestamp()+" dinit: warning: "+msg, args...)
 }
 
-var logError = func(msg any) { //nolint:unused
+var logError = func(msg any) { //nolint:unused,gochecknoglobals
 	log.Printf(timestamp()+" dinit: error: %s", msg)
 }
 
-var logErrorf = func(msg string, args ...any) {
+var logErrorf = func(msg string, args ...any) { //nolint:gochecknoglobals
 	log.Printf(timestamp()+" dinit: error: "+msg, args...)
 }
 
@@ -138,13 +138,13 @@ func processNotExist(err error) bool {
 	return errors.Is(err, os.ErrNotExist) || errors.Is(err, unix.ESRCH) || errors.Is(err, syscall.ESRCH) || errors.Is(err, os.ErrProcessDone)
 }
 
-var MainContext, MainCancel = context.WithCancel(context.Background()) //nolint:revive
+var MainContext, MainCancel = context.WithCancel(context.Background()) //nolint:revive,gochecknoglobals
 
-var mainPid = os.Getpid()
+var mainPid = os.Getpid() //nolint:gochecknoglobals
 
 var (
-	exitCode   *int
-	exitCodeMu sync.Mutex
+	exitCode   *int       //nolint:gochecknoglobals
+	exitCodeMu sync.Mutex //nolint:gochecknoglobals
 )
 
 func callers() []uintptr {
@@ -179,7 +179,7 @@ func getExitCode() int {
 	return 0
 }
 
-var StdOutLog = log.New(os.Stdout, "", logFlags)
+var StdOutLog = log.New(os.Stdout, "", logFlags) //nolint:gochecknoglobals
 
 func Main() {
 	ConfigureLog(os.Getenv("DINIT_LOG_LEVEL"))
@@ -297,12 +297,12 @@ func handleTerminateSignals() {
 // errgroup's Add after its Wait has already stopped waiting. We do this by making sure
 // reparenting function only returns once the context is canceled and there are no more
 // known running children.
-var knownRunningChildren = atomic.Int32{}
+var knownRunningChildren = atomic.Int32{} //nolint:gochecknoglobals
 
 // A map of running sub-processes we started or adopted.
 var (
-	runningChildren   = map[int]bool{}
-	runningChildrenMu sync.RWMutex
+	runningChildren   = map[int]bool{} //nolint:gochecknoglobals
+	runningChildrenMu sync.RWMutex     //nolint:gochecknoglobals
 )
 
 func setRunningChildPid(pid int, lock bool) {
@@ -496,17 +496,17 @@ func doRedirectAndWait(
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			// If we are here, process finished successfully but the context has been canceled so err was set, so we just ignore the err.
-			*status = state.Sys().(syscall.WaitStatus) //nolint:errcheck
+			*status = state.Sys().(syscall.WaitStatus) //nolint:errcheck,forcetypeassert
 		} else if state != nil && !state.Success() {
 			// This is a condition in Wait when err is set when process fails, so we just ignore the err.
-			*status = state.Sys().(syscall.WaitStatus) //nolint:errcheck
+			*status = state.Sys().(syscall.WaitStatus) //nolint:errcheck,forcetypeassert
 		} else {
 			err = errors.WithMessagef(err, "%s/%s: error waiting for the process", name, stage)
 			maybeSetExitCode(exitDinitFailure, err)
 			return err
 		}
 	} else {
-		*status = state.Sys().(syscall.WaitStatus) //nolint:errcheck
+		*status = state.Sys().(syscall.WaitStatus) //nolint:errcheck,forcetypeassert
 	}
 
 	if status.Exited() {
@@ -808,8 +808,8 @@ func logService(ctx context.Context, g *errgroup.Group, name string, jsonName []
 }
 
 var (
-	processedPids   = map[int]bool{}
-	processedPidsMu sync.Mutex
+	processedPids   = map[int]bool{} //nolint:gochecknoglobals
+	processedPidsMu sync.Mutex       //nolint:gochecknoglobals
 )
 
 // ProcessPid could be called multiple times on the same PID (of the same process) so
@@ -1141,7 +1141,7 @@ func ReparentingAdopt(ctx context.Context, g *errgroup.Group, pid int, waiting c
 				return err
 			}
 
-			return ctx.Err()
+			return ctx.Err() //nolint:wrapcheck
 		case <-done:
 			// The process finished or there was an error waiting for it.
 			// In any case we do not have anything to do anymore.
@@ -1177,7 +1177,7 @@ func doWait(p *os.Process, name, stage string) errors.E {
 		maybeSetExitCode(exitDinitFailure, err)
 		return err
 	}
-	status := state.Sys().(syscall.WaitStatus) //nolint:errcheck
+	status := state.Sys().(syscall.WaitStatus) //nolint:errcheck,forcetypeassert
 
 	if status.Exited() {
 		logInfof("%s/%s: PID %d finished with status %d", name, stage, p.Pid, status.ExitStatus())

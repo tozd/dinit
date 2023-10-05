@@ -62,6 +62,8 @@ func startProcess(t *testing.T) (*exec.Cmd, *os.File, *os.File, *os.File, *os.Fi
 }
 
 func TestReplaceFdForProcessAndChildren(t *testing.T) {
+	t.Parallel()
+
 	cmd, stdinWriter, stdoutWriter1, stderrWriter1, stdoutWriter2, stderrWriter2, stdout2, stderr2 := startProcess(t)
 
 	waited := false
@@ -104,6 +106,8 @@ func TestReplaceFdForProcessAndChildren(t *testing.T) {
 }
 
 func TestRedirectStdoutStderr(t *testing.T) {
+	t.Parallel()
+
 	cmd, stdinWriter, stdoutWriter1, stderrWriter1, stdoutWriter2, stderrWriter2, stdout2, stderr2 := startProcess(t)
 
 	waited := false
@@ -160,6 +164,8 @@ func TestRedirectStdoutStderr(t *testing.T) {
 }
 
 func TestRedirectAllStdoutStderr(t *testing.T) {
+	t.Parallel()
+
 	cmd, stdinWriter, stdoutWriter1, stderrWriter1, stdoutWriter2, stderrWriter2, stdout2, stderr2 := startProcess(t)
 
 	waited := false
