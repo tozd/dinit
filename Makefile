@@ -1,4 +1,4 @@
-.PHONY: build build-static test test-ci lint lint-ci fmt fmt-ci clean release lint-docs audit
+.PHONY: build build-static test test-ci lint lint-ci fmt fmt-ci clean release lint-docs audit encrypt decrypt sops
 
 build:
 	go build -trimpath -ldflags "-s -w" -o dinit gitlab.com/tozd/dinit/cmd/dinit
@@ -15,7 +15,7 @@ test-ci:
 	go tool cover -html=coverage.txt -o coverage.html
 
 lint:
-	golangci-lint run --timeout 4m --color always --fix
+	golangci-lint run --timeout 4m --color always --allow-parallel-runners --fix
 
 lint-ci:
 	golangci-lint run --timeout 4m --out-format colored-line-number,code-climate:codeclimate.json
@@ -39,3 +39,12 @@ lint-docs:
 
 audit:
 	go list -json -deps | nancy sleuth --skip-update-check
+
+encrypt:
+	gitlab-config sops --encrypt --mac-only-encrypted --in-place --encrypted-comment-regex sops:enc .gitlab-conf.yml
+
+decrypt:
+	SOPS_AGE_KEY_FILE=keys.txt gitlab-config sops --decrypt --in-place .gitlab-conf.yml
+
+sops:
+	SOPS_AGE_KEY_FILE=keys.txt gitlab-config sops .gitlab-conf.yml
