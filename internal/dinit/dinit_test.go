@@ -85,9 +85,7 @@ func assertLogs(t *testing.T, expected []string, actual string, msgAndArgs ...in
 	}
 }
 
-func TestReparentingTerminate(t *testing.T) {
-	t.Parallel()
-
+func TestReparentingTerminate(t *testing.T) { //nolint:paralleltest
 	dinit.MainContext, dinit.MainCancel = context.WithCancel(context.Background())
 
 	l := withLogger(t, log.Default(), func() {
@@ -120,9 +118,7 @@ func TestReparentingTerminate(t *testing.T) {
 	}, l)
 }
 
-func TestReparentingAdoptCancel(t *testing.T) {
-	t.Parallel()
-
+func TestReparentingAdoptCancel(t *testing.T) { //nolint:paralleltest
 	dinit.MainContext, dinit.MainCancel = context.WithCancel(context.Background())
 
 	l := withLogger(t, log.Default(), func() {
@@ -163,9 +159,7 @@ func TestReparentingAdoptCancel(t *testing.T) {
 	}, l)
 }
 
-func TestReparentingAdoptFinish(t *testing.T) {
-	t.Parallel()
-
+func TestReparentingAdoptFinish(t *testing.T) { //nolint:paralleltest
 	dinit.MainContext, dinit.MainCancel = context.WithCancel(context.Background())
 
 	l := withLogger(t, log.Default(), func() {
@@ -301,9 +295,7 @@ func TestProcessAge(t *testing.T) {
 	assert.InDelta(t, time.Second, age, float64(time.Second))
 }
 
-func TestRedirectJSON(t *testing.T) {
-	t.Parallel()
-
+func TestRedirectJSON(t *testing.T) { //nolint:paralleltest
 	l := withLogger(t, log.Default(), func() {
 		var in bytes.Buffer
 		var out bytes.Buffer
@@ -325,9 +317,7 @@ func TestRedirectJSON(t *testing.T) {
 	assert.Regexp(t, `\d+Z dinit: warning: test/run: not JSON stdout: test\n`, l)
 }
 
-func TestRedirectToLogWithPrefix(t *testing.T) {
-	t.Parallel()
-
+func TestRedirectToLogWithPrefix(t *testing.T) { //nolint:paralleltest
 	l := withLogger(t, log.Default(), func() {
 		var in bytes.Buffer
 		var out bytes.Buffer
@@ -340,9 +330,7 @@ func TestRedirectToLogWithPrefix(t *testing.T) {
 	assert.Equal(t, "", l)
 }
 
-func TestRunNoServices(t *testing.T) {
-	t.Parallel()
-
+func TestRunNoServices(t *testing.T) { //nolint:paralleltest
 	dinit.MainContext, dinit.MainCancel = context.WithCancel(context.Background())
 
 	l := withLogger(t, log.Default(), func() {
