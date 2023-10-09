@@ -91,6 +91,8 @@ var _SC_CLK_TCK = getClockTicks() //nolint:revive,stylecheck,gochecknoglobals
 
 const matureProcessAge = 10 * time.Millisecond
 
+const waitForDone = 10 * time.Millisecond
+
 // We manually prefix logging.
 const logFlags = 0
 
@@ -787,10 +789,21 @@ func logService(ctx context.Context, g *errgroup.Group, name string, jsonName []
 		// main process has finished first. Then we leave to the main process
 		// to decide on that. This allows the main process to disable itself.
 		defer func() {
+			// We give a bit of time to the main process to finish first.
+			timer := time.NewTimer(waitForDone)
+			defer timer.Stop()
+
 			select {
 			case <-done:
+				// The main process finished first.
 				return
-			default:
+			case <-ctx.Done():
+				// Something else cancelled the context,
+				// we do not have to do it.
+				return
+			case <-timer.C:
+				// Waiting for the main process to finish first expired.
+				// We cancel the context.
 				MainCancel()
 			}
 		}()
