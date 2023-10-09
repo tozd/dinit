@@ -46,6 +46,33 @@ test:
 
   coverage: '/coverage: \d+\.\d+% of statements/'
 
+test_e2e:
+  stage: test
+
+  image: docker:23-git
+
+  services:
+    - docker:23-dind
+
+  before_script:
+    - docker info
+    - echo "$CI_JOB_TOKEN" | docker login --username gitlab-ci-token --password-stdin "$CI_REGISTRY"
+
+  script:
+    - docker build --tag dinit .
+    - docker run --rm -v "$(pwd)/tests/service:/etc/service" -e DINIT_LOG_LEVEL=debug dinit > >(tee -a defaults-stdout.log) 2> >(tee -a defaults-stderr.log >&2)
+    - docker run --rm -v "$(pwd)/tests/service:/etc/service" -e DINIT_LOG_LEVEL=debug -e DINIT_REPARENTING_POLICY=adopt dinit > >(tee -a adopt-stdout.log) 2> >(tee -a adopt-stderr.log >&2)
+    - docker run --rm -v "$(pwd)/tests/service:/etc/service" -e DINIT_LOG_LEVEL=debug -e DINIT_JSON_STDOUT=0 dinit > >(tee -a nojson-stdout.log) 2> >(tee -a nojson-stderr.log >&2)
+    - ./tests/compare.sh
+
+  artifacts:
+    when: always
+    expose_as: results
+    name: results
+    paths:
+      - tests/results/*:*.log
+    expire_in: 1 year
+
 lint:
   stage: test
 
@@ -135,10 +162,6 @@ docker:
     - export IMAGE_ID=$(docker create "$DOCKER_PIPELINE_IMAGE_NAME")
     - docker cp "$IMAGE_ID:/dinit" dinit-linux-amd64
     - docker rm "$IMAGE_ID"
-    - docker run --rm -v "$(pwd)/tests/service:/etc/service" -e DINIT_LOG_LEVEL=debug "$DOCKER_PIPELINE_IMAGE_NAME" > >(tee -a defaults-stdout.log) 2> >(tee -a defaults-stderr.log >&2)
-    - docker run --rm -v "$(pwd)/tests/service:/etc/service" -e DINIT_LOG_LEVEL=debug -e DINIT_REPARENTING_POLICY=adopt "$DOCKER_PIPELINE_IMAGE_NAME" > >(tee -a adopt-stdout.log) 2> >(tee -a adopt-stderr.log >&2)
-    - docker run --rm -v "$(pwd)/tests/service:/etc/service" -e DINIT_LOG_LEVEL=debug -e DINIT_JSON_STDOUT=0 "$DOCKER_PIPELINE_IMAGE_NAME" > >(tee -a nojson-stdout.log) 2> >(tee -a nojson-stderr.log >&2)
-    - ./tests/compare.sh
 
   artifacts:
     expose_as: binaries
