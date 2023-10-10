@@ -49,28 +49,41 @@ test:
 test_e2e:
   stage: test
 
-  image: docker:23-git
+  image: golang:1.21-alpine3.18
 
   services:
     - docker:23-dind
 
   before_script:
+    - apk --update add docker-cli make gcc musl-dev bash
+    - (cd /go; go install github.com/boumenot/gocover-cobertura@v1.2.0)
     - docker info
     - echo "$CI_JOB_TOKEN" | docker login --username gitlab-ci-token --password-stdin "$CI_REGISTRY"
 
   script:
-    - docker build --tag dinit .
-    - docker run --rm -v "$(pwd)/tests/service:/etc/service" -e DINIT_LOG_LEVEL=debug dinit > >(tee -a defaults-stdout.log) 2> >(tee -a defaults-stderr.log >&2)
-    - docker run --rm -v "$(pwd)/tests/service:/etc/service" -e DINIT_LOG_LEVEL=debug -e DINIT_REPARENTING_POLICY=adopt dinit > >(tee -a adopt-stdout.log) 2> >(tee -a adopt-stderr.log >&2)
-    - docker run --rm -v "$(pwd)/tests/service:/etc/service" -e DINIT_LOG_LEVEL=debug -e DINIT_JSON_STDOUT=0 dinit > >(tee -a nojson-stdout.log) 2> >(tee -a nojson-stderr.log >&2)
+    - docker build --tag dinit --build-arg DINIT_BUILD_FLAGS="-race -cover -covermode atomic" .
+    - docker run --rm -v "$(pwd)/coverage:/coverage" -v "$(pwd)/tests/service:/etc/service" -e GOCOVERDIR=/coverage -e DINIT_LOG_LEVEL=debug dinit > >(tee -a defaults-stdout.log) 2> >(tee -a defaults-stderr.log >&2)
+    - docker run --rm -v "$(pwd)/coverage:/coverage" -v "$(pwd)/tests/service:/etc/service" -e GOCOVERDIR=/coverage -e DINIT_LOG_LEVEL=debug -e DINIT_REPARENTING_POLICY=adopt dinit > >(tee -a adopt-stdout.log) 2> >(tee -a adopt-stderr.log >&2)
+    - docker run --rm -v "$(pwd)/coverage:/coverage" -v "$(pwd)/tests/service:/etc/service" -e GOCOVERDIR=/coverage -e DINIT_LOG_LEVEL=debug -e DINIT_JSON_STDOUT=0 dinit > >(tee -a nojson-stdout.log) 2> >(tee -a nojson-stderr.log >&2)
     - ./tests/compare.sh
+    - go tool covdata percent -i=coverage
+    - go tool covdata textfmt -i=coverage -o coverage.txt
+    - gocover-cobertura < coverage.txt > coverage.xml
+    - go tool cover -html=coverage.txt -o coverage.html
 
   artifacts:
     when: always
-    name: results
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
     paths:
       - tests/results/*:*.log
-    expire_in: 1 year
+      - coverage.html
+      - coverage.xml
+    expire_in: never
+
+  coverage: '/coverage: \d+\.\d+% of statements/'
 
 lint:
   stage: test

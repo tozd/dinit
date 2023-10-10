@@ -1,10 +1,10 @@
 .PHONY: build build-static test test-ci lint lint-ci fmt fmt-ci clean release lint-docs audit encrypt decrypt sops
 
 build:
-	go build -trimpath -ldflags "-s -w" -o dinit gitlab.com/tozd/dinit/cmd/dinit
+	go build $(DINIT_BUILD_FLAGS) -trimpath -ldflags "-s -w" -o dinit gitlab.com/tozd/dinit/cmd/dinit
 
 build-static:
-	go build -trimpath -ldflags "-s -w -linkmode external -extldflags '-static'" -o dinit gitlab.com/tozd/dinit/cmd/dinit
+	go build $(DINIT_BUILD_FLAGS) -trimpath -ldflags "-s -w -linkmode external -extldflags '-static'" -o dinit gitlab.com/tozd/dinit/cmd/dinit
 
 test:
 	gotestsum --format pkgname --packages ./... -- -race -timeout 10m -cover -covermode atomic

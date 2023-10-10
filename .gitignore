@@ -1,6 +1,7 @@
 tests.xml
 coverage.*
 codeclimate.json
+/coverage
 /dinit
 /keys.txt
 /*.log

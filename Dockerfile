@@ -3,6 +3,7 @@
 # for the Dockerfile frontend image to be pulled.
 FROM golang:1.21-alpine3.18 AS build
 
+ARG DINIT_BUILD_FLAGS
 RUN apk --update add make git gcc musl-dev
 COPY . /go/src/dinit
 WORKDIR /go/src/dinit
