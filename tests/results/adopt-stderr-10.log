@@ -1,9 +1,10 @@
-Z dinit: info: bash/X: PID X finished with signal 15
-Z dinit: info: bash/X: sending SIGTERM to PID X
+Z dinit: info: bash/X: PID X finished with status 0
 Z dinit: info: dinit exiting with status 0
-Z dinit: info: service1/run: PID X finished with status 0
+Z dinit: info: service1/run: PID X finished with signal 15
 Z dinit: info: service1/run: running with PID X
+Z dinit: info: service1/run: sending SIGTERM to PID X
 Z dinit: info: service1/run: starting
+Z dinit: info: service1/run: terminating
 Z dinit: info: service2/run: PID X finished with signal 15
 Z dinit: info: service2/run: running with PID X
 Z dinit: info: service2/run: starting
@@ -30,12 +31,14 @@ Z dinit: info: service5/run: PID X finished and disabled itself
 Z dinit: info: service5/run: running with PID X
 Z dinit: info: service5/run: starting
 Z dinit: info: sleep/X: PID X finished with signal 15
+Z dinit: info: sleep/X: PID X finished with status 0
 Z dinit: info: sleep/X: sending SIGTERM to PID X
-Z dinit: warning: bash/X: terminating reparented child process with PID X: bash -c (while true; do LC_ALL=C date ; sleep 1; done)
-Z dinit: warning: bash/X: terminating reparented child process with PID X: bash -c sleep 3; echo x y z
-Z dinit: warning: sleep/X: terminating reparented child process with PID X: sleep 1
-Z dinit: warning: sleep/X: terminating reparented child process with PID X: sleep 3
-Z dinit: warning: sleep/X: terminating reparented child process with PID X: sleep infinity
+Z dinit: warning: bash/X: adopting reparented child process with PID X: bash -c sleep 3; echo x y z
+Z dinit: warning: bash/X: not JSON stdout: x y z
+Z dinit: warning: service1/run: not JSON stdout: foo
+Z dinit: warning: sleep/X: reaping process with PID X
+Z dinit: warning: sleep/X: terminating reparented child process with PID X: sleep 10
+Z dinit: warning: sleep/X: terminating reparented child process with PID X: sleep 5s
 Z service1/run: test
 Z service2/term: sending SIGTERM to PID X using terminate file
 Z service4/log: invalid
