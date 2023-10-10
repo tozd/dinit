@@ -1070,6 +1070,22 @@ func GetProcessInfo(pid int) (string, string, string, errors.E) {
 	return cmdline, name, stage, nil
 }
 
+func checkProcess(p *os.Process, name, stage, cmdline string) (bool, errors.E) {
+	zombie, err := IsZombie(p.Pid)
+	if err != nil {
+		if processNotExist(err) {
+			// The process does not exist anymore, nothing for us to do anymore.
+			return false, nil
+		}
+		maybeSetExitCode(exitDinitFailure, err)
+		return false, err
+	}
+	if zombie {
+		return false, reapZombie(p, name, stage, cmdline)
+	}
+	return true, nil
+}
+
 // We do not care about context cancellation. Even if the context is canceled we still
 // want to continue adopting reparented processes (and terminating them as soon as possible).
 func ReparentingAdopt(ctx context.Context, g *errgroup.Group, pid int, waiting chan<- struct{}) errors.E {
@@ -1098,17 +1114,9 @@ func ReparentingAdopt(ctx context.Context, g *errgroup.Group, pid int, waiting c
 
 	// Checking if the process is a zombie is primarily cosmetic to reduce
 	// potentially misleading logging messages.
-	zombie, err := IsZombie(pid)
-	if err != nil {
-		if processNotExist(err) {
-			// The process does not exist anymore, nothing for us to do anymore.
-			return nil
-		}
-		maybeSetExitCode(exitDinitFailure, err)
+	ok, err := checkProcess(p, name, stage, cmdline)
+	if !ok || err != nil {
 		return err
-	}
-	if zombie {
-		return reapZombie(p, name, stage, cmdline)
 	}
 
 	if cmdline != "" {
@@ -1131,6 +1139,18 @@ func ReparentingAdopt(ctx context.Context, g *errgroup.Group, pid int, waiting c
 			logWarnf("%s/%s: error redirecting stdout and stderr: % -+#.1v", name, stage, err)
 		} else {
 			logWarnf("%s/%s: error redirecting stdout and stderr: %s", name, stage, err)
+		}
+
+		// We check the process again on error. It might happen that the process does not
+		// exist anymore and because pcontrol uses wait it might have reaped the process.
+		// Checking here prevents errors later on.
+		ok, err := checkProcess(p, name, stage, cmdline)
+		if err != nil {
+			return errors.WithMessagef(err, "%s/%s", name, stage)
+		}
+		if !ok {
+			logInfof("%s/%s: PID %d finished before adopting complete", name, stage, p.Pid)
+			return nil
 		}
 	}
 
