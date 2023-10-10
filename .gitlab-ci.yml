@@ -67,7 +67,6 @@ test_e2e:
 
   artifacts:
     when: always
-    expose_as: results
     name: results
     paths:
       - tests/results/*:*.log
