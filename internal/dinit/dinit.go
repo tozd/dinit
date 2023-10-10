@@ -163,11 +163,11 @@ func maybeSetExitCode(code int, err errors.E) {
 		exitCode = &code
 	}
 	if debugLog && code == exitDinitFailure {
-		st := fmt.Sprintf("%+v", errors.StackFormatter{Stack: callers()})
+		st := errors.StackFormatter{Stack: callers()}
 		if err != nil {
-			logDebugf("setting exit code to %d at (most recent call first):\n%s\ncaused by the following error:\n\n% -+#.1v", code, st, err)
+			logDebugf("setting exit code to %d at (most recent call first):\n%+v\ncaused by the following error:\n\n% -+#.1v", code, st, err)
 		} else {
-			logDebugf("setting exit code to %d at (most recent call first):\n%s", code, st)
+			logDebugf("setting exit code to %d at (most recent call first):\n%+v", code, st)
 		}
 	}
 }
