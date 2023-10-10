@@ -54,6 +54,9 @@ test_e2e:
   services:
     - docker:23-dind
 
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+
   before_script:
     - apk --update add docker-cli make gcc musl-dev bash
     - (cd /go; go install github.com/boumenot/gocover-cobertura@v1.2.0)
