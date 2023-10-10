@@ -58,7 +58,7 @@ test_e2e:
     DOCKER_HOST: tcp://docker:2375
 
   before_script:
-    - apk --update add docker-cli make gcc musl-dev bash
+    - apk --update add docker-cli-buildx make gcc musl-dev bash
     - (cd /go; go install github.com/boumenot/gocover-cobertura@v1.2.0)
     - docker info
     - echo "$CI_JOB_TOKEN" | docker login --username gitlab-ci-token --password-stdin "$CI_REGISTRY"
