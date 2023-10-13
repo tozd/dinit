@@ -396,9 +396,7 @@ func RedirectToLogWithPrefix(l *log.Logger, stage, name, input string, reader io
 
 	scanner := bufio.NewScanner(reader)
 
-	res := true
-	for res {
-		res = scanner.Scan()
+	for scanner.Scan() {
 		line := scanner.Text()
 		if len(line) > 0 {
 			l.Printf("%s %s/%s: %s\n", timestamp(), name, stage, line)
@@ -430,9 +428,7 @@ func RedirectJSON(stage, name string, jsonName []byte, reader io.ReadCloser, wri
 	scanner := bufio.NewScanner(reader)
 	timeBuffer := make([]byte, 0, len(RFC3339Milli))
 
-	res := true
-	for res {
-		res = scanner.Scan()
+	for scanner.Scan() {
 		line := scanner.Bytes()
 		if len(line) > 0 {
 			// We do a quick check if the line looks like JSON.
