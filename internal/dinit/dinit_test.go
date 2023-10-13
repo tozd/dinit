@@ -233,8 +233,8 @@ func TestGetProcessInfo(t *testing.T) {
 			// So that the command runs.
 			time.Sleep(15 * time.Millisecond)
 
-			cmdline, name, stage, err := dinit.GetProcessInfo(cmd.Process.Pid)
-			assert.NoError(t, err)
+			cmdline, name, stage, errE := dinit.GetProcessInfo(cmd.Process.Pid)
+			assert.NoError(t, errE, "% -+#.1v", errE)
 			assert.Equal(t, tt.Cmdline, cmdline)
 			assert.Equal(t, tt.Name, name)
 			assert.Equal(t, strconv.Itoa(cmd.Process.Pid), stage)
@@ -269,8 +269,8 @@ func TestIsZombie(t *testing.T) {
 			// So that the command runs.
 			time.Sleep(15 * time.Millisecond)
 
-			z, err := dinit.IsZombie(cmd.Process.Pid)
-			assert.NoError(t, err)
+			z, errE := dinit.IsZombie(cmd.Process.Pid)
+			assert.NoError(t, errE, "% -+#.1v", errE)
 			assert.Equal(t, tt.Zombie, z)
 		})
 	}
@@ -290,8 +290,8 @@ func TestProcessAge(t *testing.T) {
 	// So that the command runs.
 	time.Sleep(15 * time.Millisecond)
 
-	age, err := dinit.ProcessAge(cmd.Process.Pid)
-	assert.NoError(t, err)
+	age, errE := dinit.ProcessAge(cmd.Process.Pid)
+	assert.NoError(t, errE, "% -+#.1v", errE)
 	assert.InDelta(t, time.Second, age, float64(time.Second))
 }
 
@@ -336,8 +336,8 @@ func TestRunNoServices(t *testing.T) { //nolint:paralleltest
 	l := withLogger(t, log.Default(), func() {
 		dir := t.TempDir()
 		g, ctx := errgroup.WithContext(dinit.MainContext)
-		err := dinit.RunServices(ctx, g, dir)
-		require.NoError(t, err)
+		errE := dinit.RunServices(ctx, g, dir)
+		require.NoError(t, errE, "% -+#.1v", errE)
 		e := g.Wait()
 		require.NoError(t, e)
 	})
@@ -371,8 +371,8 @@ func TestRunServices(t *testing.T) { //nolint:paralleltest
 			e = os.WriteFile(path.Join(dir, "service3", "log", "run"), []byte("#!/bin/sh\necho log\n>&2 echo logerr\nexec cat"), 0o755) //nolint:gosec
 			require.NoError(t, e)
 			g, ctx := errgroup.WithContext(dinit.MainContext)
-			err := dinit.RunServices(ctx, g, dir)
-			require.NoError(t, err)
+			errE := dinit.RunServices(ctx, g, dir)
+			require.NoError(t, errE, "% -+#.1v", errE)
 			e = g.Wait()
 			require.NoError(t, e)
 

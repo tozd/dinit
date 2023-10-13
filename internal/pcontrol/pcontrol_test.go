@@ -82,8 +82,8 @@ func TestReplaceFdForProcessAndChildren(t *testing.T) {
 		_ = stderr2.Close()
 	})
 
-	err := pcontrol.ReplaceFdForProcessAndChildren(false, func(msg string, args ...any) {}, cmd.Process.Pid, "stdout", stdoutWriter1, stdoutWriter2)
-	require.NoError(t, err)
+	errE := pcontrol.ReplaceFdForProcessAndChildren(false, func(msg string, args ...any) {}, cmd.Process.Pid, "stdout", stdoutWriter1, stdoutWriter2)
+	require.NoError(t, errE, "% -+#.1v", errE)
 
 	_, _ = stdinWriter.WriteString("\n")
 
@@ -126,19 +126,19 @@ func TestRedirectStdoutStderr(t *testing.T) {
 		_ = stderr2.Close()
 	})
 
-	stdoutWriter3, stderrWriter3, err := pcontrol.RedirectStdoutStderr(false, func(msg string, args ...any) {}, cmd.Process.Pid, stdoutWriter2, stderrWriter2)
+	stdoutWriter3, stderrWriter3, errE := pcontrol.RedirectStdoutStderr(false, func(msg string, args ...any) {}, cmd.Process.Pid, stdoutWriter2, stderrWriter2)
 	t.Cleanup(func() {
 		_ = stdoutWriter3.Close()
 		_ = stderrWriter3.Close()
 	})
-	require.NoError(t, err)
+	require.NoError(t, errE, "% -+#.1v", errE)
 
-	equal, err := pc.EqualFds(int(stdoutWriter1.Fd()), int(stdoutWriter3.Fd()))
-	require.NoError(t, err)
+	equal, errE := pc.EqualFds(int(stdoutWriter1.Fd()), int(stdoutWriter3.Fd()))
+	require.NoError(t, errE, "% -+#.1v", errE)
 	assert.True(t, equal)
 
-	equal, err = pc.EqualFds(int(stderrWriter1.Fd()), int(stderrWriter3.Fd()))
-	require.NoError(t, err)
+	equal, errE = pc.EqualFds(int(stderrWriter1.Fd()), int(stderrWriter3.Fd()))
+	require.NoError(t, errE, "% -+#.1v", errE)
 	assert.True(t, equal)
 
 	_, _ = stdinWriter.WriteString("\n")
@@ -184,12 +184,12 @@ func TestRedirectAllStdoutStderr(t *testing.T) {
 		_ = stderr2.Close()
 	})
 
-	stdout3, stderr3, err := pcontrol.RedirectAllStdoutStderr(false, func(msg string, args ...any) {}, cmd.Process.Pid)
+	stdout3, stderr3, errE := pcontrol.RedirectAllStdoutStderr(false, func(msg string, args ...any) {}, cmd.Process.Pid)
 	t.Cleanup(func() {
 		_ = stdout3.Close()
 		_ = stderr3.Close()
 	})
-	require.NoError(t, err)
+	require.NoError(t, errE, "% -+#.1v", errE)
 
 	_, _ = stdinWriter.WriteString("\n")
 
