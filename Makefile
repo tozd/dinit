@@ -1,3 +1,5 @@
+SHELL = /bin/bash -o pipefail
+
 .PHONY: build build-static test test-ci lint lint-ci fmt fmt-ci clean release lint-docs audit encrypt decrypt sops
 
 build:
