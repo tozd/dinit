@@ -117,17 +117,17 @@ func replaceFdForProcessFds(_ bool, logWarnf func(msg string, args ...any), pid 
 		if hostFd == -1 {
 			continue
 		}
-		equal, err := pcontrol.EqualFds(hostFd, int(from.Fd()))
-		if err != nil {
-			return err
+		equal, e := pcontrol.EqualFds(hostFd, int(from.Fd()))
+		if e != nil {
+			return e
 		}
 		if !equal {
 			continue
 		}
 
-		err = p.SetFd(int(to.Fd()), traceeFds[i])
-		if err != nil {
-			return err
+		e = p.SetFd(int(to.Fd()), traceeFds[i])
+		if e != nil {
+			return e
 		}
 	}
 
