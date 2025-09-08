@@ -1,7 +1,7 @@
 # This Dockerfile requires DOCKER_BUILDKIT=1 to be build.
 # We do not use syntax header so that we do not have to wait
 # for the Dockerfile frontend image to be pulled.
-FROM golang:1.21-alpine3.18 AS build
+FROM golang:1.23-alpine3.22 AS build
 
 ARG DINIT_BUILD_FLAGS
 RUN apk --update add make bash git gcc musl-dev
@@ -11,7 +11,7 @@ RUN \
   make build-static && \
   mv dinit /go/bin/dinit
 
-FROM alpine:3.18
+FROM alpine:3.22
 ARG TARGETARCH
 RUN apk --no-cache add tzdata bash && \
   wget -O /usr/local/bin/regex2json https://gitlab.com/tozd/regex2json/-/releases/v0.12.0/downloads/linux-${TARGETARCH:-amd64}/regex2json && \

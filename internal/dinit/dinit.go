@@ -152,7 +152,7 @@ var (
 func callers() []uintptr {
 	const depth = 32
 	var pcs [depth]uintptr
-	n := runtime.Callers(3, pcs[:]) //nolint:gomnd
+	n := runtime.Callers(3, pcs[:]) //nolint:mnd
 	return pcs[0:n]
 }
 
@@ -281,7 +281,7 @@ func ConfigureLog(level string) {
 
 func handleTerminateSignals() {
 	// We do not handle SIGQUIT because that is handled specially by Go runtime.
-	c := make(chan os.Signal, 2) //nolint:gomnd
+	c := make(chan os.Signal, 2) //nolint:mnd
 	signal.Notify(c, unix.SIGTERM, unix.SIGINT)
 	for s := range c {
 		if MainContext.Err() != nil {
@@ -972,7 +972,7 @@ func getProcessStatus(pid int) (string, []string, errors.E) {
 		return "", nil, errors.WithStack(e)
 	}
 	match := procStatRegexp.FindSubmatch(statData)
-	if len(match) != 3 { //nolint:gomnd
+	if len(match) != 3 { //nolint:mnd
 		errE := errors.New("could not match process status")
 		errors.Details(errE)["path"] = statPath
 		errors.Details(errE)["data"] = statData
@@ -1170,7 +1170,7 @@ func ReparentingAdopt(ctx context.Context, g *errgroup.Group, pid int, waiting c
 				return err
 			}
 
-			return ctx.Err() //nolint:wrapcheck
+			return ctx.Err()
 		case <-done:
 			// The process finished or there was an error waiting for it.
 			// In any case we do not have anything to do anymore.

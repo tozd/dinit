@@ -1,6 +1,6 @@
 module gitlab.com/tozd/dinit
 
-go 1.21
+go 1.23
 
 require (
 	gitlab.com/tozd/go/errors v0.7.2

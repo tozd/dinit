@@ -72,7 +72,7 @@ func RedirectStdoutStderr( //nolint:nonamedreturns
 	if err != nil {
 		return
 	}
-	err = p.SetFd(int(stderrWriter.Fd()), 2) //nolint:gomnd
+	err = p.SetFd(int(stderrWriter.Fd()), 2) //nolint:mnd
 	if err != nil {
 		return
 	}

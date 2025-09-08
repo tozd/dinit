@@ -1,42 +1,38 @@
 linters-settings:
   errcheck:
     check-type-assertions: true
-    enable-all: true
   gocritic:
     disabled-checks:
       - ifElseChain
   godot:
     scope: all
-  gofumpt:
-    go: "1.21"
   goimports:
     local-prefixes: gitlab.com/tozd/dinit
   gosimple:
-    go: "1.21"
     checks:
       - all
   govet:
-    check-shadowing: true
+    enable-all: true
+    disable:
+      - fieldalignment
   lll:
     line-length: 170
   nestif:
     min-complexity: 15
   nolintlint:
     allow-unused: false
-    allow-leading-space: false
     require-specific: true
   stylecheck:
-    go: "1.21"
     checks:
       - all
   staticcheck:
-    go: "1.21"
     checks:
       - all
   tagalign:
     strict: true
-  unused:
-    go: "1.21"
+  testifylint:
+    require-error:
+      fn-pattern: ^(NoError|NotErrorIs)$
 
 linters:
   disable-all: true
@@ -45,36 +41,37 @@ linters:
     - asciicheck
     - bidichk
     - bodyclose
+    - canonicalheader
     - containedctx
     - contextcheck
+    - copyloopvar
     - decorder
     - dogsled
     - dupl
     - dupword
     - durationcheck
+    - err113
     - errcheck
     - errchkjson
     - errname
     - errorlint
-    - execinquery
     - exhaustive
     - exhaustruct
-    - exportloopref
+    - fatcontext
     - forbidigo
     - forcetypeassert
     - ginkgolinter
     - gocheckcompilerdirectives
     - gochecknoglobals
     - gochecknoinits
+    - gochecksumtype
     - goconst
     - gocritic
     - godot
-    - goerr113
     - gofmt
     - gofumpt
     - goheader
     - goimports
-    - gomnd
     - gomoddirectives
     - gomodguard
     - goprintffuncname
@@ -84,8 +81,10 @@ linters:
     - govet
     - grouper
     - importas
+    - inamedparam
     - ineffassign
     - interfacebloat
+    - intrange
     - ireturn
     - lll
     - loggercheck
@@ -93,6 +92,7 @@ linters:
     - makezero
     - mirror
     - misspell
+    - mnd
     - musttag
     - nakedret
     - nestif
@@ -103,19 +103,23 @@ linters:
     - nonamedreturns
     - nosprintfhostport
     - paralleltest
+    - perfsprint
     - prealloc
     - predeclared
     - promlinter
+    - protogetter
     - reassign
     - revive
     - rowserrcheck
+    - sloglint
+    - spancheck
     - sqlclosecheck
     - staticcheck
     - stylecheck
     - tagalign
     - tagliatelle
-    - tenv
     - testableexamples
+    - testifylint
     - testpackage
     - thelper
     - tparallel
@@ -124,6 +128,7 @@ linters:
     - unparam
     - unused
     - usestdlibvars
+    - usetesting
     - wastedassign
     - whitespace
     - wrapcheck

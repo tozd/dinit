@@ -217,8 +217,6 @@ func TestGetProcessInfo(t *testing.T) {
 		{[]string{"/bin/true"}, "", "true"},
 		{[]string{"/bin/sleep", "infinity"}, "/bin/sleep infinity", "sleep"},
 	} {
-		tt := tt
-
 		t.Run(strings.Join(tt.Cmd, " "), func(t *testing.T) {
 			t.Parallel()
 
@@ -253,8 +251,6 @@ func TestIsZombie(t *testing.T) {
 		{[]string{"/bin/true"}, true},
 		{[]string{"/bin/sleep", "infinity"}, false},
 	} {
-		tt := tt
-
 		t.Run(strings.Join(tt.Cmd, " "), func(t *testing.T) {
 			t.Parallel()
 
@@ -344,7 +340,7 @@ func TestRunNoServices(t *testing.T) { //nolint:paralleltest
 	assert.Regexp(t, `.+Z dinit: warning: no services found, exiting\n`, l)
 }
 
-func TestRunServices(t *testing.T) { //nolint:paralleltest
+func TestRunServices(t *testing.T) {
 	t.Setenv("DINIT_JSON_STDOUT", "0")
 	dinit.MainContext, dinit.MainCancel = context.WithCancel(context.Background())
 

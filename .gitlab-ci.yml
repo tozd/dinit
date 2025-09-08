@@ -21,12 +21,12 @@ variables:
 test:
   stage: test
 
-  image: golang:1.21-alpine3.18
+  image: golang:1.23-alpine3.22
 
   before_script:
     - apk --update add make bash gcc musl-dev
-    - (cd /go; go install gotest.tools/gotestsum@v1.10.1)
-    - (cd /go; go install github.com/boumenot/gocover-cobertura@v1.2.0)
+    - (cd /go; go install gotest.tools/gotestsum@v1.12.3)
+    - (cd /go; go install github.com/boumenot/gocover-cobertura@v1.4.0)
 
   script:
     - make test-ci
@@ -49,7 +49,7 @@ test:
 test_e2e:
   stage: test
 
-  image: golang:1.21-alpine3.18
+  image: golang:1.23-alpine3.22
 
   services:
     - name: docker:28-dind
@@ -62,7 +62,7 @@ test_e2e:
 
   before_script:
     - apk --update add docker-cli-buildx make bash gcc musl-dev
-    - (cd /go; go install github.com/boumenot/gocover-cobertura@v1.2.0)
+    - (cd /go; go install github.com/boumenot/gocover-cobertura@v1.4.0)
     - docker info
     - echo "$CI_JOB_TOKEN" | docker login --username gitlab-ci-token --password-stdin "$CI_REGISTRY"
 
@@ -94,7 +94,7 @@ test_e2e:
 lint:
   stage: test
 
-  image: golang:1.21-alpine3.18
+  image: golang:1.23-alpine3.22
 
   before_script:
     - apk --update add make bash gcc musl-dev
@@ -112,12 +112,12 @@ lint:
 fmt:
   stage: test
 
-  image: golang:1.21-alpine3.18
+  image: golang:1.23-alpine3.22
 
   before_script:
     - apk --update add make bash git gcc musl-dev grep
-    - go install mvdan.cc/gofumpt@v0.5.0
-    - go install golang.org/x/tools/cmd/goimports@v0.13.0
+    - go install mvdan.cc/gofumpt@v0.9.1
+    - go install golang.org/x/tools/cmd/goimports@v0.36.0
 
   script:
     - make fmt-ci
@@ -136,11 +136,11 @@ lint_docs:
 audit:
   stage: test
 
-  image: golang:1.21-alpine3.18
+  image: golang:1.23-alpine3.22
 
   before_script:
     - apk --update add make bash git gcc musl-dev
-    - go install github.com/sonatype-nexus-community/nancy@v1.0.42
+    - go install github.com/sonatype-nexus-community/nancy@v1.0.51
 
   script:
     - make audit
@@ -148,7 +148,7 @@ audit:
 commits:
   stage: test
 
-  image: golang:1.21-alpine3.18
+  image: golang:1.23-alpine3.22
 
   variables:
     GIT_DEPTH: "0"
@@ -220,7 +220,7 @@ upload_binaries:
 publish:
   stage: deploy
 
-  image: golang:1.21-alpine3.18
+  image: golang:1.23-alpine3.22
 
   script:
     - GOPROXY=proxy.golang.org go list -m "gitlab.com/tozd/dinit@$CI_COMMIT_REF_NAME"
