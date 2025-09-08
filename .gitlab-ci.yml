@@ -14,7 +14,7 @@ variables:
   # We always want to run with the Go version installed in a Docker image.
   GOTOOLCHAIN: local
   DOCKER_PIPELINE_IMAGE_NAME: "$CI_REGISTRY_IMAGE/pipeline:$CI_PIPELINE_ID"
-  DOCKER_DRIVER: overlay2
+  DOCKER_DRIVER: overlayfs
   DOCKER_BUILDKIT: "1"
   PACKAGE_REGISTRY_URL: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic"
 
@@ -52,7 +52,10 @@ test_e2e:
   image: golang:1.21-alpine3.18
 
   services:
-    - docker:23-dind
+    - name: docker:28-dind
+      command:
+        - "--feature"
+        - "containerd-snapshotter=true"
 
   variables:
     DOCKER_HOST: tcp://docker:2375
@@ -159,23 +162,32 @@ commits:
 docker:
   stage: build
 
-  image: docker:23-git
+  image: docker:28-cli
 
   services:
-    - docker:23-dind
+    - name: docker:28-dind
+      command:
+        - "--feature"
+        - "containerd-snapshotter=true"
 
   before_script:
     - docker info
     - echo "$CI_JOB_TOKEN" | docker login --username gitlab-ci-token --password-stdin "$CI_REGISTRY"
+    - docker run --privileged --rm tonistiigi/binfmt --uninstall "qemu-*"
+    - docker run --privileged --rm tonistiigi/binfmt:qemu-v9.2.2 --install arm64
 
   script:
     - docker build
-      --tag "$DOCKER_PIPELINE_IMAGE_NAME"
-      --tag "$CI_REGISTRY_IMAGE/commit:$CI_COMMIT_SHA" .
+        --platform linux/amd64,linux/arm64
+        --tag "$DOCKER_PIPELINE_IMAGE_NAME"
+        --tag "$CI_REGISTRY_IMAGE/commit:$CI_COMMIT_SHA" .
     - docker push "$DOCKER_PIPELINE_IMAGE_NAME"
     - docker push "$CI_REGISTRY_IMAGE/commit:$CI_COMMIT_SHA"
-    - export IMAGE_ID=$(docker create "$DOCKER_PIPELINE_IMAGE_NAME")
+    - export IMAGE_ID=$(docker create --platform linux/amd64 "$DOCKER_PIPELINE_IMAGE_NAME")
     - docker cp "$IMAGE_ID:/dinit" dinit-linux-amd64
+    - docker rm "$IMAGE_ID"
+    - export IMAGE_ID=$(docker create --platform linux/arm64 "$DOCKER_PIPELINE_IMAGE_NAME")
+    - docker cp "$IMAGE_ID:/dinit" dinit-linux-arm64
     - docker rm "$IMAGE_ID"
 
   artifacts:
@@ -183,6 +195,7 @@ docker:
     name: binaries
     paths:
       - dinit-linux-amd64
+      - dinit-linux-arm64
     expire_in: never
 
   # We want to run it as soon as possible and do not wait for test stage to finish.
@@ -195,6 +208,7 @@ upload_binaries:
 
   script:
     - 'curl --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file dinit-linux-amd64 "$PACKAGE_REGISTRY_URL/linux-amd64/${CI_COMMIT_REF_NAME#v}/dinit"'
+    - 'curl --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file dinit-linux-arm64 "$PACKAGE_REGISTRY_URL/linux-arm64/${CI_COMMIT_REF_NAME#v}/dinit"'
 
   rules:
     # Only on protected tags. Protected tags start with "v".
