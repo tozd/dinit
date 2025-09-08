@@ -15,8 +15,6 @@ import (
 // Redirects stdout and stderr of the process with PID pid to provided stdoutWriter and stderrWriter.
 // Additionally, it copies original stdout and stderr (before redirect) from the process with PID to
 // this process and returns them. Make sure to close them once you do not need them anymore.
-//
-//nolint:nakedret
 func RedirectStdoutStderr( //nolint:nonamedreturns
 	_ bool, logWarnf func(msg string, args ...any), pid int, stdoutWriter, stderrWriter *os.File,
 ) (stdout, stderr *os.File, err errors.E) {
@@ -28,7 +26,7 @@ func RedirectStdoutStderr( //nolint:nonamedreturns
 
 	err = p.Attach()
 	if err != nil {
-		return
+		return stdout, stderr, err
 	}
 	defer func() {
 		err2 := p.Detach()
@@ -43,7 +41,7 @@ func RedirectStdoutStderr( //nolint:nonamedreturns
 				unix.Close(fd)
 			}
 		}
-		return
+		return stdout, stderr, err
 	}
 
 	// When there is no error, number of file descriptors in fds should be the same
@@ -70,21 +68,19 @@ func RedirectStdoutStderr( //nolint:nonamedreturns
 
 	err = p.SetFd(int(stdoutWriter.Fd()), 1)
 	if err != nil {
-		return
+		return stdout, stderr, err
 	}
 	err = p.SetFd(int(stderrWriter.Fd()), 2) //nolint:mnd
 	if err != nil {
-		return
+		return stdout, stderr, err
 	}
 
-	return
+	return stdout, stderr, err
 }
 
 // replaceFdForProcessFds copies traceeFds to this process to see which ones if any match
 // "from". If match is found, we replace it with "to" by copying "to" to the tracee and set it
 // instead of the corresponding traceeFd.
-//
-//nolint:nakedret
 func replaceFdForProcessFds(_ bool, logWarnf func(msg string, args ...any), pid int, traceeFds []int, from, to *os.File) (err errors.E) { //nolint:nonamedreturns
 	p := pcontrol.Process{
 		Pid:        pid,
@@ -94,7 +90,7 @@ func replaceFdForProcessFds(_ bool, logWarnf func(msg string, args ...any), pid 
 
 	err = p.Attach()
 	if err != nil {
-		return
+		return err
 	}
 	defer func() {
 		err2 := p.Detach()
@@ -111,7 +107,7 @@ func replaceFdForProcessFds(_ bool, logWarnf func(msg string, args ...any), pid 
 		}
 	}()
 	if err != nil {
-		return
+		return err
 	}
 
 	// When there is no error, number of file descriptors in hostFds should be the same
@@ -135,7 +131,7 @@ func replaceFdForProcessFds(_ bool, logWarnf func(msg string, args ...any), pid 
 		}
 	}
 
-	return
+	return err
 }
 
 // replaceFdForProcess enumerates all file descriptors the process with pid has and calls replaceFdForProcessFds
@@ -236,8 +232,6 @@ func ReplaceFdForProcessAndChildren(debugLog bool, logWarnf func(msg string, arg
 // The main function to setup redirect of stdout and stderr for a direct child.
 // Moreover, for the direct child and all its descendants it also replaces all
 // file descriptors matching those initial stdout and stderr with redirects as well.
-//
-//nolint:nakedret
 func RedirectAllStdoutStderr(debugLog bool, logWarnf func(msg string, args ...any), pid int) (stdout, stderr *os.File, err errors.E) { //nolint:nonamedreturns
 	defer func() {
 		if err != nil {
@@ -255,21 +249,21 @@ func RedirectAllStdoutStderr(debugLog bool, logWarnf func(msg string, args ...an
 	stdout, stdoutWriter, e := os.Pipe()
 	if e != nil {
 		err = errors.WithStack(e)
-		return
+		return stdout, stderr, err
 	}
 	// Writer is not needed once it is (successfully or not) passed to the adopted process.
 	defer stdoutWriter.Close()
 	stderr, stderrWriter, e := os.Pipe()
 	if e != nil {
 		err = errors.WithStack(e)
-		return
+		return stdout, stderr, err
 	}
 	// Writer is not needed once it is (successfully or not) passed to the adopted process.
 	defer stderrWriter.Close()
 
 	originalStdout, originalStderr, err := RedirectStdoutStderr(debugLog, logWarnf, pid, stdoutWriter, stderrWriter)
 	if err != nil {
-		return
+		return stdout, stderr, err
 	}
 	if originalStdout != nil {
 		defer originalStdout.Close()
@@ -281,16 +275,16 @@ func RedirectAllStdoutStderr(debugLog bool, logWarnf func(msg string, args ...an
 	if originalStdout != nil {
 		err = ReplaceFdForProcessAndChildren(debugLog, logWarnf, pid, "stdout", originalStdout, stdoutWriter)
 		if err != nil {
-			return
+			return stdout, stderr, err
 		}
 	}
 
 	if originalStderr != nil {
 		err = ReplaceFdForProcessAndChildren(debugLog, logWarnf, pid, "stderr", originalStderr, stderrWriter)
 		if err != nil {
-			return
+			return stdout, stderr, err
 		}
 	}
 
-	return
+	return stdout, stderr, err
 }
