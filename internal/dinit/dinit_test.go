@@ -86,7 +86,7 @@ func assertLogs(t *testing.T, expected []string, actual string, msgAndArgs ...in
 }
 
 func TestReparentingTerminate(t *testing.T) { //nolint:paralleltest
-	dinit.MainContext, dinit.MainCancel = context.WithCancel(context.Background())
+	dinit.MainContext, dinit.MainCancel = context.WithCancel(context.Background()) //nolint:fatcontext
 
 	l := withLogger(t, log.Default(), func() {
 		cmd := exec.Command("/bin/sleep", "infinity")
@@ -119,7 +119,7 @@ func TestReparentingTerminate(t *testing.T) { //nolint:paralleltest
 }
 
 func TestReparentingAdoptCancel(t *testing.T) { //nolint:paralleltest
-	dinit.MainContext, dinit.MainCancel = context.WithCancel(context.Background())
+	dinit.MainContext, dinit.MainCancel = context.WithCancel(context.Background()) //nolint:fatcontext
 
 	l := withLogger(t, log.Default(), func() {
 		cmd := exec.Command("/bin/sleep", "infinity")
@@ -145,7 +145,7 @@ func TestReparentingAdoptCancel(t *testing.T) { //nolint:paralleltest
 		cancel()
 
 		e = g.Wait()
-		require.ErrorAs(t, e, &context.Canceled)
+		require.ErrorIs(t, e, context.Canceled)
 
 		// So that the goroutine reading stdout and stderr from the process completes.
 		time.Sleep(15 * time.Millisecond)
@@ -160,7 +160,7 @@ func TestReparentingAdoptCancel(t *testing.T) { //nolint:paralleltest
 }
 
 func TestReparentingAdoptFinish(t *testing.T) { //nolint:paralleltest
-	dinit.MainContext, dinit.MainCancel = context.WithCancel(context.Background())
+	dinit.MainContext, dinit.MainCancel = context.WithCancel(context.Background()) //nolint:fatcontext
 
 	l := withLogger(t, log.Default(), func() {
 		stdin, stdinWriter, e := os.Pipe()
@@ -232,7 +232,7 @@ func TestGetProcessInfo(t *testing.T) {
 			time.Sleep(15 * time.Millisecond)
 
 			cmdline, name, stage, errE := dinit.GetProcessInfo(cmd.Process.Pid)
-			assert.NoError(t, errE, "% -+#.1v", errE)
+			require.NoError(t, errE, "% -+#.1v", errE)
 			assert.Equal(t, tt.Cmdline, cmdline)
 			assert.Equal(t, tt.Name, name)
 			assert.Equal(t, strconv.Itoa(cmd.Process.Pid), stage)
@@ -266,7 +266,7 @@ func TestIsZombie(t *testing.T) {
 			time.Sleep(15 * time.Millisecond)
 
 			z, errE := dinit.IsZombie(cmd.Process.Pid)
-			assert.NoError(t, errE, "% -+#.1v", errE)
+			require.NoError(t, errE, "% -+#.1v", errE)
 			assert.Equal(t, tt.Zombie, z)
 		})
 	}
@@ -287,7 +287,7 @@ func TestProcessAge(t *testing.T) {
 	time.Sleep(15 * time.Millisecond)
 
 	age, errE := dinit.ProcessAge(cmd.Process.Pid)
-	assert.NoError(t, errE, "% -+#.1v", errE)
+	require.NoError(t, errE, "% -+#.1v", errE)
 	assert.InDelta(t, time.Second, age, float64(time.Second))
 }
 
@@ -327,7 +327,7 @@ func TestRedirectToLogWithPrefix(t *testing.T) { //nolint:paralleltest
 }
 
 func TestRunNoServices(t *testing.T) { //nolint:paralleltest
-	dinit.MainContext, dinit.MainCancel = context.WithCancel(context.Background())
+	dinit.MainContext, dinit.MainCancel = context.WithCancel(context.Background()) //nolint:fatcontext
 
 	l := withLogger(t, log.Default(), func() {
 		dir := t.TempDir()
@@ -342,7 +342,7 @@ func TestRunNoServices(t *testing.T) { //nolint:paralleltest
 
 func TestRunServices(t *testing.T) {
 	t.Setenv("DINIT_JSON_STDOUT", "0")
-	dinit.MainContext, dinit.MainCancel = context.WithCancel(context.Background())
+	dinit.MainContext, dinit.MainCancel = context.WithCancel(context.Background()) //nolint:fatcontext
 
 	var stdout string
 	stderr := withLogger(t, log.Default(), func() {

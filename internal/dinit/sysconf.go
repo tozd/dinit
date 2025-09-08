@@ -6,5 +6,5 @@ package dinit
 import "C"
 
 func getClockTicks() int {
-	return int(C.sysconf(C._SC_CLK_TCK))
+	return int(C.sysconf(C._SC_CLK_TCK)) //nolint:godot
 }

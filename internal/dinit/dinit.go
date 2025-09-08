@@ -257,20 +257,20 @@ func ConfigureLog(level string) {
 
 	switch level {
 	case "none":
-		logError = func(msg any) {}
-		logErrorf = func(msg string, args ...any) {}
+		logError = func(_ any) {}
+		logErrorf = func(_ string, _ ...any) {}
 		fallthrough
 	case "error":
-		logWarn = func(msg any) {}
-		logWarnf = func(msg string, args ...any) {}
+		logWarn = func(_ any) {}
+		logWarnf = func(_ string, _ ...any) {}
 		fallthrough
 	case "warn", "": // Default log level.
-		logInfo = func(msg any) {}
-		logInfof = func(msg string, args ...any) {}
+		logInfo = func(_ any) {}
+		logInfof = func(_ string, _ ...any) {}
 		fallthrough
 	case "info":
-		logDebug = func(msg any) {}
-		logDebugf = func(msg string, args ...any) {}
+		logDebug = func(_ any) {}
+		logDebugf = func(_ string, _ ...any) {}
 	case "debug":
 		debugLog = true
 	default:
@@ -1007,7 +1007,7 @@ func ProcessAge(pid int) (time.Duration, errors.E) {
 		return 0, errE
 	}
 	// We first compute time.Second / _SC_CLK_TCK to not lose precision.
-	startTimeSinceBoot := time.Duration(startTime * (uint64(time.Second) / uint64(_SC_CLK_TCK)))
+	startTimeSinceBoot := time.Duration(startTime * (uint64(time.Second) / uint64(_SC_CLK_TCK))) //nolint:gosec
 
 	uptimeData, e := os.ReadFile("/proc/uptime")
 	if e != nil {

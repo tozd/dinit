@@ -82,7 +82,7 @@ func TestReplaceFdForProcessAndChildren(t *testing.T) {
 		_ = stderr2.Close()
 	})
 
-	errE := pcontrol.ReplaceFdForProcessAndChildren(false, func(msg string, args ...any) {}, cmd.Process.Pid, "stdout", stdoutWriter1, stdoutWriter2)
+	errE := pcontrol.ReplaceFdForProcessAndChildren(false, func(_ string, _ ...any) {}, cmd.Process.Pid, "stdout", stdoutWriter1, stdoutWriter2)
 	require.NoError(t, errE, "% -+#.1v", errE)
 
 	_, _ = stdinWriter.WriteString("\n")
@@ -126,7 +126,7 @@ func TestRedirectStdoutStderr(t *testing.T) {
 		_ = stderr2.Close()
 	})
 
-	stdoutWriter3, stderrWriter3, errE := pcontrol.RedirectStdoutStderr(false, func(msg string, args ...any) {}, cmd.Process.Pid, stdoutWriter2, stderrWriter2)
+	stdoutWriter3, stderrWriter3, errE := pcontrol.RedirectStdoutStderr(false, func(_ string, _ ...any) {}, cmd.Process.Pid, stdoutWriter2, stderrWriter2)
 	t.Cleanup(func() {
 		_ = stdoutWriter3.Close()
 		_ = stderrWriter3.Close()
@@ -184,7 +184,7 @@ func TestRedirectAllStdoutStderr(t *testing.T) {
 		_ = stderr2.Close()
 	})
 
-	stdout3, stderr3, errE := pcontrol.RedirectAllStdoutStderr(false, func(msg string, args ...any) {}, cmd.Process.Pid)
+	stdout3, stderr3, errE := pcontrol.RedirectAllStdoutStderr(false, func(_ string, _ ...any) {}, cmd.Process.Pid)
 	t.Cleanup(func() {
 		_ = stdout3.Close()
 		_ = stderr3.Close()
