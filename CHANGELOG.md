@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Binaries and Docker images are now built for linux/arm64.
+
+### Changed
+
+- Go 1.23 or newer is required.
+
 ## [0.3.0] - 2023-10-10
 
 ### Added
