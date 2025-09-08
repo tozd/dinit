@@ -21,7 +21,7 @@ variables:
 test:
   stage: test
 
-  image: golang:1.23-alpine3.22
+  image: golang:1.25-alpine3.22
 
   before_script:
     - apk --update add make bash gcc musl-dev
@@ -49,7 +49,7 @@ test:
 test_e2e:
   stage: test
 
-  image: golang:1.23-alpine3.22
+  image: golang:1.25-alpine3.22
 
   services:
     - name: docker:28-dind
@@ -94,7 +94,7 @@ test_e2e:
 lint:
   stage: test
 
-  image: golang:1.23-alpine3.22
+  image: golang:1.25-alpine3.22
 
   before_script:
     - apk --update add make bash gcc musl-dev
@@ -112,7 +112,7 @@ lint:
 fmt:
   stage: test
 
-  image: golang:1.23-alpine3.22
+  image: golang:1.25-alpine3.22
 
   before_script:
     - apk --update add make bash git gcc musl-dev grep
@@ -136,7 +136,7 @@ lint_docs:
 audit:
   stage: test
 
-  image: golang:1.23-alpine3.22
+  image: golang:1.25-alpine3.22
 
   before_script:
     - apk --update add make bash git gcc musl-dev
@@ -148,7 +148,7 @@ audit:
 commits:
   stage: test
 
-  image: golang:1.23-alpine3.22
+  image: golang:1.25-alpine3.22
 
   variables:
     GIT_DEPTH: "0"
@@ -220,7 +220,7 @@ upload_binaries:
 publish:
   stage: deploy
 
-  image: golang:1.23-alpine3.22
+  image: golang:1.25-alpine3.22
 
   script:
     - GOPROXY=proxy.golang.org go list -m "gitlab.com/tozd/dinit@$CI_COMMIT_REF_NAME"
