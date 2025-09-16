@@ -14,7 +14,7 @@ RUN \
 FROM alpine:3.22
 ARG TARGETARCH
 RUN apk --no-cache add tzdata bash && \
-  wget -O /usr/local/bin/regex2json https://gitlab.com/tozd/regex2json/-/releases/v0.12.0/downloads/linux-${TARGETARCH:-amd64}/regex2json && \
+  wget -O /usr/local/bin/regex2json https://gitlab.com/tozd/regex2json/-/releases/v0.13.0/downloads/linux-${TARGETARCH:-amd64}/regex2json && \
   chmod +x /usr/local/bin/regex2json
 COPY --from=build /go/bin/dinit /
 ENTRYPOINT ["/dinit"]
