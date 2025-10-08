@@ -15,7 +15,10 @@ variables:
   GOTOOLCHAIN: local
   DOCKER_PIPELINE_IMAGE_NAME: "$CI_REGISTRY_IMAGE/pipeline:$CI_PIPELINE_ID"
   DOCKER_DRIVER: overlayfs
-  DOCKER_BUILDKIT: "1"
+  FF_NETWORK_PER_BUILD: 1
+  DOCKER_HOST: tcp://docker:2375
+  # Disable umask 0000. See: https://gitlab.com/gitlab-org/gitlab-runner/-/issues/1736
+  FF_DISABLE_UMASK_FOR_DOCKER_EXECUTOR: 1
   PACKAGE_REGISTRY_URL: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic"
 
 test:
