@@ -69,16 +69,18 @@ test_e2e:
     - docker info
     - echo "$CI_JOB_TOKEN" | docker login --username gitlab-ci-token --password-stdin "$CI_REGISTRY"
 
+  # TODO: Use go tool covdata percent to obtain total coverage instead of the workaround with go tool cover -func.
+  #       See: https://github.com/golang/go/issues/66506
   script:
     - docker build --tag dinit --build-arg DINIT_BUILD_FLAGS="-race -cover -covermode atomic" .
     - docker run --rm -v "$(pwd)/coverage:/coverage" -v "$(pwd)/tests/service:/etc/service" -e GOCOVERDIR=/coverage -e DINIT_LOG_LEVEL=debug dinit > >(tee -a defaults-stdout.log) 2> >(tee -a defaults-stderr.log >&2)
     - docker run --rm -v "$(pwd)/coverage:/coverage" -v "$(pwd)/tests/service:/etc/service" -e GOCOVERDIR=/coverage -e DINIT_LOG_LEVEL=debug -e DINIT_REPARENTING_POLICY=adopt dinit > >(tee -a adopt-stdout.log) 2> >(tee -a adopt-stderr.log >&2)
     - docker run --rm -v "$(pwd)/coverage:/coverage" -v "$(pwd)/tests/service:/etc/service" -e GOCOVERDIR=/coverage -e DINIT_LOG_LEVEL=debug -e DINIT_JSON_STDOUT=0 dinit > >(tee -a nojson-stdout.log) 2> >(tee -a nojson-stderr.log >&2)
     - ./tests/compare.sh
-    - go tool covdata percent -i=coverage
     - go tool covdata textfmt -i=coverage -o coverage.txt
     - gocover-cobertura < coverage.txt > coverage.xml
     - go tool cover -html=coverage.txt -o coverage.html
+    - go tool cover -func=coverage.txt
 
   artifacts:
     when: always
@@ -92,7 +94,7 @@ test_e2e:
       - coverage.xml
     expire_in: never
 
-  coverage: '/coverage: \d+\.\d+% of statements/'
+  coverage: '/total:.+statements.+\d+\.\d+%/'
 
 lint:
   stage: test
