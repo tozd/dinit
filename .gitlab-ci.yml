@@ -60,9 +60,6 @@ test_e2e:
         - "--feature"
         - "containerd-snapshotter=true"
 
-  variables:
-    DOCKER_HOST: tcp://docker:2375
-
   before_script:
     - apk --update add docker-cli docker-cli-buildx make bash gcc musl-dev
     - (cd /go; go install github.com/boumenot/gocover-cobertura@v1.4.0)
