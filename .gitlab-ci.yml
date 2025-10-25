@@ -119,7 +119,7 @@ fmt:
   before_script:
     - apk --update add make bash git gcc musl-dev grep
     - go install mvdan.cc/gofumpt@v0.9.1
-    - go install golang.org/x/tools/cmd/goimports@v0.36.0
+    - go install golang.org/x/tools/cmd/goimports@v0.37.0
 
   script:
     - make fmt-ci
