@@ -64,7 +64,7 @@ test_e2e:
     - apk --update add docker-cli docker-cli-buildx make bash gcc musl-dev
     - (cd /go; go install github.com/boumenot/gocover-cobertura@v1.4.0)
     - docker info
-    - echo "$CI_JOB_TOKEN" | docker login --username gitlab-ci-token --password-stdin "$CI_REGISTRY"
+    - echo "$CI_REGISTRY_PASSWORD" | docker login --username "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
 
   # TODO: Use go tool covdata percent to obtain total coverage instead of the workaround with go tool cover -func.
   #       See: https://github.com/golang/go/issues/66506
@@ -174,7 +174,7 @@ docker:
 
   before_script:
     - docker info
-    - echo "$CI_JOB_TOKEN" | docker login --username gitlab-ci-token --password-stdin "$CI_REGISTRY"
+    - echo "$CI_REGISTRY_PASSWORD" | docker login --username "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
     - docker run --privileged --rm tonistiigi/binfmt --uninstall "qemu-*"
     - docker run --privileged --rm tonistiigi/binfmt:qemu-v9.2.2 --install arm64
 
