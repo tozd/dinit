@@ -142,7 +142,7 @@ audit:
 
   before_script:
     - apk --update add make bash git gcc musl-dev
-    - go install github.com/sonatype-nexus-community/nancy@v1.0.51
+    - go install github.com/sonatype-nexus-community/nancy@v1.0.52
 
   script:
     - make audit
